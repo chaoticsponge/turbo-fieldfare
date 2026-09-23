@@ -25,6 +25,10 @@ public final class AppModel {
     }
 
     public var modelPathText: String
+    public var isQwenModel: Bool { QwenModelVariant.matching(repoID: installer.descriptor.repoID) != nil }
+    public var isTextOnlyQwenModel: Bool {
+        QwenModelVariant.matching(repoID: installer.descriptor.repoID)?.supportsImages == false
+    }
     public var promptText: String = ""
     public private(set) var imageAttachments: [StagedImage] = []
     public private(set) var imageAttachmentError: String?
@@ -130,7 +134,7 @@ public final class AppModel {
     public private(set) var runIdentity: Int = 0
 
     let client: any AppInferenceClient
-    private let installer: any AppModelInstallerClient
+    private var installer: any AppModelInstallerClient
     private let visionInstaller: any AppVisionPackInstallerClient
     /// The message currently on its way through the send pipeline, from the
     /// click to the commit or the hand-back. `isTurnInFlight` reads it, so a
@@ -190,7 +194,7 @@ public final class AppModel {
         set { conversationBinding?.identity = newValue }
     }
     var conversationBindingGeneration: UInt64 = 0
-    let conversationIdentityProvider: @Sendable (URL) throws -> ConversationIdentity
+    var conversationIdentityProvider: @Sendable (URL) throws -> ConversationIdentity
     let conversationStoreProvider: @Sendable (URL) -> ConversationStore
     var pendingRestoredConversationID: UUID?
     var pendingServiceRecoveryConversationID: UUID?
@@ -385,6 +389,7 @@ public final class AppModel {
     }
 
     public var canInstallVisionPack: Bool {
+        guard !isQwenModel else { return false }
         guard isVisionRuntimeSupported else { return false }
         // A layout with nowhere to put a companion cannot be repaired by
         // downloading one, so do not offer to.
@@ -396,6 +401,7 @@ public final class AppModel {
     }
 
     public var canActivateVisionPack: Bool {
+        guard !isQwenModel else { return false }
         guard isVisionRuntimeSupported else { return false }
         guard case .readyToActivate = visionInstallState else { return false }
         return canBeginVisionCompanionOperation
@@ -752,6 +758,69 @@ public final class AppModel {
         temperature != 0
     }
 
+    public private(set) var installedModels: [InstalledModel] = []
+
+    public var canSelectInstalledModel: Bool {
+        !isTurnInFlight && !isRunning && !isAddingImages && !loadState.isLoading
+            && !isInstallingModel && !isVisionCompanionOperationInProgress && unloadTask == nil
+    }
+
+    public func refreshInstalledModels() {
+        let current = URL(fileURLWithPath: modelPathText, isDirectory: true)
+        installedModels = InstalledModelCatalog.discover(
+            in: InstalledModelCatalog.searchDirectories(current: current), including: [current])
+    }
+
+    public func selectInstalledModel(_ directory: URL) {
+        guard canSelectInstalledModel, directory.standardizedFileURL.path != modelPathText else { return }
+        guard let installed = InstalledModelCatalog.installedModel(at: directory) else {
+            refreshInstalledModels()
+            return
+        }
+        installer.cancel()
+        if let variant = QwenModelVariant.matching(repoID: installed.descriptor.repoID) {
+            guard let selectedInstaller = try? QwenModelInstallerClient(variant: variant) else { return }
+            installer = selectedInstaller
+        } else {
+            installer = RepackModelInstallerClient()
+        }
+        bindSelectedModel(installed.directory)
+    }
+
+    public var downloadableQwenModels: [QwenModelVariant] {
+        QwenModelVariant.allCases.filter { $0.installDescriptor != nil }
+    }
+
+    /// Selection exposes Download/Resume; it never starts a network transfer.
+    public func selectQwenModelForInstallation(_ variant: QwenModelVariant) {
+        guard canSelectInstalledModel else { return }
+        if let installed = installedModels.first(where: { $0.descriptor.repoID == variant.repoID }) {
+            selectInstalledModel(installed.directory)
+            return
+        }
+        let directory = QwenModelPackage.defaultDirectory(for: variant)
+        guard directory.path != modelPathText else { return }
+        do {
+            let selectedInstaller = try QwenModelInstallerClient(variant: variant)
+            installer.cancel()
+            installer = selectedInstaller
+            bindSelectedModel(directory)
+        } catch {
+            self.error = .modelLoadFailed(String(describing: error))
+        }
+    }
+
+    private func bindSelectedModel(_ directory: URL) {
+        conversationIdentityProvider = { directory in
+            if QwenModelPackage.isQwen(at: directory) {
+                return try QwenModelPackage.identity(at: directory)
+            }
+            return try ConversationIdentity.forModelDirectory(directory)
+        }
+        setModelURL(directory)
+        refreshInstalledModels()
+    }
+
     public func setModelURL(_ url: URL) {
         // Rebinding replaces the screen machine outright, so a replay in
         // flight would lose the message it is carrying.
@@ -933,7 +1002,7 @@ public final class AppModel {
     /// offered an Add-images button with no tower behind it, and the failure
     /// only surfaced when the user pressed Generate.
     public var isImageInputAvailable: Bool {
-        isVisionRuntimeSupported && isVisionPackInstalled
+        !isTextOnlyQwenModel && isVisionRuntimeSupported && isVisionPackInstalled
     }
 
     /// Image support is part of this build. Hardware support and companion-pack
@@ -1354,7 +1423,7 @@ public final class AppModel {
     }
 
     public var canRemoveVisionPack: Bool {
-        hasVisionPackDirectory && canBeginVisionCompanionOperation
+        !isQwenModel && hasVisionPackDirectory && canBeginVisionCompanionOperation
     }
 
     public var hasVisionPackDirectory: Bool {
@@ -1621,6 +1690,12 @@ public final class AppModel {
     }
 
     private func recordVisionAvailabilityError(at textModelDirectory: URL) {
+        if isTextOnlyQwenModel {
+            let message = "Image support is unavailable for this text-only Qwen model. Choose an image-capable model to use attachments."
+            visionAvailabilityAttachmentError = message
+            imageAttachmentError = message
+            return
+        }
         let location: String
         do {
             location = try VisionPackLocation.companionURL(

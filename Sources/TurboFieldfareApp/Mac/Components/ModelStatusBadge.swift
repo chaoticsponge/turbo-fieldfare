@@ -8,12 +8,11 @@ struct ModelStatusBadge: View {
     var body: some View {
         HStack(spacing: 6) {
             statusDot
-            Text("Gemma 4 26B")
-                .font(.callout.weight(.semibold))
+            ModelPickerView(model: model)
+                .labelsHidden()
                 .lineLimit(1)
-                .help(model.installDescriptor.repoID)
-                .accessibilityLabel("Model")
-                .accessibilityValue(model.installDescriptor.repoID)
+                .frame(maxWidth: 240)
+                .help("Choose a model to load or download. " + model.modelPathText)
                 .accessibilityIdentifier(.hudStatus)
         }
     }

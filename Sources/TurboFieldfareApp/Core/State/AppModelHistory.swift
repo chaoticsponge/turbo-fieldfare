@@ -292,8 +292,13 @@ extension AppModel {
         }
         let taken = links
         let releasing = attachmentStore
+        let qwenDirectory = isQwenModel ? URL(fileURLWithPath: modelPathText) : nil
         pendingTurnImageWrite = Task.detached(priority: .utility) {
             let directory = await store.imagesURL(for: id)
+            if let qwenDirectory {
+                defer { for link in taken { releasing.remove(link) } }
+                return await QwenImageInputs.store(taken, modelDirectory: qwenDirectory, into: directory)
+            }
             return Self.writeStoredImages(taken, into: directory, releasing: releasing)
         }
     }

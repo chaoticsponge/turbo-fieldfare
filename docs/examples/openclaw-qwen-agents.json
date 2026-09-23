@@ -1,0 +1,30 @@
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "turbofieldfare": {
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "apiKey": "local",
+        "api": "openai-completions",
+        "models": [{
+          "id": "qwen3.8-27b-8bit.mlx",
+          "name": "Local Qwen3.8 27B",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+          "contextWindow": 65536,
+          "maxTokens": 4096
+        }]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {"primary": "turbofieldfare/qwen3.8-27b-8bit.mlx"},
+      "subagents": {
+        "model": "turbofieldfare/qwen3.8-27b-8bit.mlx",
+        "maxConcurrent": 2
+      }
+    }
+  }
+}

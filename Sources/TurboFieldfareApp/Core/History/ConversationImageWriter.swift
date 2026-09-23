@@ -152,7 +152,7 @@ public struct ConversationImageWriter: Sendable {
     /// the aspect ratio the user recognises rather than the tower's 48-aligned
     /// one. `kCGImageSourceThumbnailMaxPixelSize` is always passed: without it
     /// `CGImageSourceCreateThumbnailAtIndex` has returned nil since iOS 17.4.
-    private func writeThumbnail(from source: URL, to url: URL) throws {
+    func writeThumbnail(from source: URL, to url: URL) throws {
         guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil),
               let thumbnail = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,

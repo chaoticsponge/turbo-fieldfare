@@ -1,0 +1,91 @@
+{
+  "repoID": "mlx-community/Qwen3.8-27B-8bit",
+  "revision": "815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9",
+  "files": [
+    {
+      "name": "chat_template.jinja",
+      "bytes": 8952,
+      "sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+    },
+    {
+      "name": "config.json",
+      "bytes": 4932,
+      "sha256": "8f80874ac3ad8fa386d3f6dc0ea85377f703376e009a03dee0360e08e289a25d"
+    },
+    {
+      "name": "generation_config.json",
+      "bytes": 202,
+      "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+    },
+    {
+      "name": "merges.txt",
+      "bytes": 3353259,
+      "sha256": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+    },
+    {
+      "name": "model-00001-of-00006.safetensors",
+      "bytes": 5317707581,
+      "sha256": "c7921fe72af5c961c3c4230ea25068ed6d1e502d5ecb2b4a53b7c9c213effa0c"
+    },
+    {
+      "name": "model-00002-of-00006.safetensors",
+      "bytes": 5354102610,
+      "sha256": "e9d93d15495354045da281f102649b99793e5b6ed0e05852c58f46e6616b54a0"
+    },
+    {
+      "name": "model-00003-of-00006.safetensors",
+      "bytes": 5354184694,
+      "sha256": "7015f40310c86a18230e28644832b624532333d5dfbf7584e6c62341dbd8975e"
+    },
+    {
+      "name": "model-00004-of-00006.safetensors",
+      "bytes": 5337309653,
+      "sha256": "7dc8ae53ed51d153e6b59499cdf004bf6ef15aab6757c7604ed4834774abc2c2"
+    },
+    {
+      "name": "model-00005-of-00006.safetensors",
+      "bytes": 5292848464,
+      "sha256": "8817c22c01aebdcde54eac315e9766f705eb512ba7ba84ac47501c663f930ac5"
+    },
+    {
+      "name": "model-00006-of-00006.safetensors",
+      "bytes": 2845065477,
+      "sha256": "fce51843fc07e1c67c5ec6d19edb46e4fa8d2b51a1cb6c8316b0a7cc069c0eb4"
+    },
+    {
+      "name": "model.safetensors.index.json",
+      "bytes": 218281,
+      "sha256": "4301ca600788afb2a45c0aa367140d6144ecf617d0a51a8187fc6755d65301f8"
+    },
+    {
+      "name": "preprocessor_config.json",
+      "bytes": 390,
+      "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+    },
+    {
+      "name": "processor_config.json",
+      "bytes": 991,
+      "sha256": "45fc17c8dd2474af6b493b52483c26c0584b0082d368c480f9fa611e73070040"
+    },
+    {
+      "name": "tokenizer.json",
+      "bytes": 19989325,
+      "sha256": "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "bytes": 1165,
+      "sha256": "792fa3f0cb88b111e54ef3134c873531008c4df471d108da17903426e308aa7b"
+    },
+    {
+      "name": "video_preprocessor_config.json",
+      "bytes": 385,
+      "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+    },
+    {
+      "name": "vocab.json",
+      "bytes": 6722759,
+      "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+    }
+  ]
+}

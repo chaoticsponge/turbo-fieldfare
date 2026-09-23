@@ -1,0 +1,56 @@
+{
+  "repoID": "mlx-community/GLM-4.7-Flash-4bit",
+  "revision": "1454cffb1a21737e162f508e5bc70be9def89276",
+  "files": [
+    {
+      "name": "chat_template.jinja",
+      "bytes": 3120,
+      "sha256": "d63ad536c3c81880043e22ec7fd08db42b4d8fb7c89c7138bc562bfa25281375"
+    },
+    {
+      "name": "config.json",
+      "bytes": 1368,
+      "sha256": "e105c6e474c01bbb07a8b307cdb1b1c32ab66bb18eaad28104326186731da1cf"
+    },
+    {
+      "name": "generation_config.json",
+      "bytes": 181,
+      "sha256": "e19f4eb8be12cdb62a3737b52a332c7c142cbf5ee24a5de7d806f6132b782425"
+    },
+    {
+      "name": "model-00001-of-00004.safetensors",
+      "bytes": 5357453035,
+      "sha256": "540741ab088c32f7338636c82c601399c0db6c11c965ac2c2865e9400d32dd8b"
+    },
+    {
+      "name": "model-00002-of-00004.safetensors",
+      "bytes": 5363462379,
+      "sha256": "28749aa10a019ffa2a68e12a94c3883e5102942b310937667bb359221a4d4a8d"
+    },
+    {
+      "name": "model-00003-of-00004.safetensors",
+      "bytes": 5363462333,
+      "sha256": "5c6896cb4c209344aac52eb9784d34145bf752aa99653d480d211f8261d5449b"
+    },
+    {
+      "name": "model-00004-of-00004.safetensors",
+      "bytes": 768064072,
+      "sha256": "48361cae86bb6d78ac246a1a23ec92e863eef276e9bc285ec6a7cbb5f8bc0f07"
+    },
+    {
+      "name": "model.safetensors.index.json",
+      "bytes": 182847,
+      "sha256": "f32b02d7114cf3c83a3d5b2094144f4d5f8a22501fb83981e2eb303e0f2209f5"
+    },
+    {
+      "name": "tokenizer.json",
+      "bytes": 20217424,
+      "sha256": "ad47af68eb0dfcc868258957578831a793a15858b88e2f8325d644fc77f4fb1c"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "bytes": 1213,
+      "sha256": "c8ee8927ebec39b93edf7333e7ded950299c643a569a601bb7bac9dc94d1f648"
+    }
+  ]
+}

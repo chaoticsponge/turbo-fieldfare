@@ -10,6 +10,7 @@ struct ModelInstallView: View {
         ScrollView {
             VStack(spacing: 22) {
                 identity
+                ModelPickerView(model: model)
                 storageCard
                 progressArea
                 actions
@@ -42,7 +43,7 @@ struct ModelInstallView: View {
             Text("Model required")
                 .font(.title.bold())
                 .accessibilityHeading(.h1)
-            Text("TurboFieldfare needs \(model.installDescriptor.displayName) before it can generate text.")
+            Text("Choose a compatible model to download, then load it to start chatting.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -72,6 +73,7 @@ struct ModelInstallView: View {
                     Spacer()
                 }
             }
+            StorageRow(label: "Download", value: MetricFormat.storage(model.installDescriptor.approximateDownloadBytes))
             Text(model.modelPathText)
                 .font(.caption.monospaced())
                 .foregroundStyle(.tertiary)

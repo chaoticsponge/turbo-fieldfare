@@ -1,0 +1,41 @@
+{
+  "repoID": "mlx-community/Qwen3-Reranker-0.6B-4bit",
+  "revision": "5f324548f1d20c2b5a450f126fc6ef2fb1126524",
+  "files": [
+    {
+      "name": "chat_template.jinja",
+      "bytes": 741,
+      "sha256": "6f682162495ec5b39fd9005c01b6aa2a74669379fe967039f1e2cbbe8752369d"
+    },
+    {
+      "name": "config.json",
+      "bytes": 1021,
+      "sha256": "09adff58b65e9305009c9caa4923b3365b18dd2f84135b44168aaf869278bea4"
+    },
+    {
+      "name": "generation_config.json",
+      "bytes": 214,
+      "sha256": "81051cd3f6e77013827148d0b8a6ead93f8ac390d5ab805f849199f0af6a08db"
+    },
+    {
+      "name": "model.safetensors",
+      "bytes": 335296756,
+      "sha256": "1d212560a5b1c36186787fdae19f11f20fecfc29bef91522e12a8e0d118f4545"
+    },
+    {
+      "name": "model.safetensors.index.json",
+      "bytes": 49770,
+      "sha256": "90d82744cdb6b7d093f0b812fc21a49b6ffa9d0084a45428f0cfd01eb4adbe12"
+    },
+    {
+      "name": "tokenizer.json",
+      "bytes": 11422650,
+      "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "bytes": 377,
+      "sha256": "1689852cc9c45010de040c8302a8acdc0d2c4c6c740dd7e9dd0a8c704e16eada"
+    }
+  ]
+}

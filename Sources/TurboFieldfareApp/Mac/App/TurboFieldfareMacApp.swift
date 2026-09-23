@@ -45,6 +45,7 @@ private final class ForegroundAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         MainActor.assumeIsolated {
             Self.model?.reacquireStoreIfPossible()
+            Self.model?.refreshInstalledModels()
             Self.model?.recheckVisionPackAtCurrentLocation()
         }
     }
@@ -89,9 +90,12 @@ struct TurboFieldfareMacApp: App {
 
     init() {
         let model = AppModel(
+            modelDirectory: QwenModelPackage.defaultDirectory(),
             client: DecodeServiceInferenceClient(),
+            installer: QwenModelInstallerClient(),
             visionRuntimeSupported: AppModel.currentDeviceSupportsVisionRuntime,
-            settingsPersistenceEnabled: true)
+            settingsPersistenceEnabled: true,
+            conversationIdentityProvider: QwenModelPackage.identity(at:))
         _model = State(initialValue: model)
         MainActor.assumeIsolated { ForegroundAppDelegate.model = model }
     }

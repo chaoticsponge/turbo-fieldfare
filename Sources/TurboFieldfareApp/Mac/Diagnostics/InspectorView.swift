@@ -13,7 +13,14 @@ struct InspectorView: View {
             // diagnostic. Last put it under the runner diagnostics and below the
             // fold, where the one screen that must mention it - the empty state
             // before any model exists - could not.
-            if showsVisionSection {
+            if model.isQwenModel {
+                Section("Image Support") {
+                    Text(model.isTextOnlyQwenModel ? "Unavailable — this model supports text only"
+                        : model.isModelInstalled ? "Included with Qwen" : "Included in the model download")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if showsVisionSection {
                 visionSection
             }
             memorySection
@@ -209,6 +216,8 @@ struct InspectorView: View {
 
     private var modelSection: some View {
         Section("Model") {
+            Button("Refresh Installed Models", action: model.refreshInstalledModels)
+                .disabled(!model.canSelectInstalledModel)
             LabeledContent("Path") {
                 HStack(spacing: 6) {
                     Text(model.modelPathText)
@@ -301,7 +310,7 @@ struct InspectorView: View {
             LabeledContent("Context") {
                 Picker("Context", selection: contextTokensBinding) {
                     ForEach(AppContextLengthOption.allCases) { option in
-                        Text(option.menuLabel).tag(option.tokens)
+                        Text(model.isQwenModel ? option.shortLabel : option.menuLabel).tag(option.tokens)
                     }
                 }
                 .pickerStyle(.menu)
@@ -309,10 +318,10 @@ struct InspectorView: View {
                 .fixedSize()
                 .accessibilityIdentifier(.inspectorContext)
             }
-            LabeledContent("Slots") {
+            LabeledContent(model.isQwenModel ? "Allocation cache" : "Slots") {
                 Picker("Slots", selection: $model.runtimeOptions.expertCacheSlots) {
-                    ForEach(AppRuntimeOptions.allowedSlotCounts, id: \.self) { slots in
-                        Text(AppRuntimeOptions.slotsLabel(for: slots)).tag(slots)
+                    ForEach(AppRuntimeOptions.allowedSlotCounts.filter { !model.isQwenModel || $0 >= 16 }, id: \.self) { slots in
+                        Text(model.isQwenModel ? "\(slots * 4) MB" : AppRuntimeOptions.slotsLabel(for: slots)).tag(slots)
                     }
                 }
                 .pickerStyle(.menu)
@@ -320,7 +329,9 @@ struct InspectorView: View {
                 .fixedSize()
                 .accessibilityIdentifier(.inspectorSlots)
             }
-            Text("More slots can improve decode speed by keeping more experts in memory, but they also use more RAM. Changes are compared with 8K context and 16 slots and apply after reloading the model.")
+            Text(model.isQwenModel
+                 ? "Qwen shares unified memory with macOS. Shorter contexts reduce memory use. The allocation cache controls memory MLX keeps for reuse; it does not include model weights. Reload to apply changes."
+                 : "More slots can improve decode speed by keeping more experts in memory, but they also use more RAM. Changes are compared with 8K context and 16 slots and apply after reloading the model.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -378,6 +389,11 @@ struct InspectorView: View {
         Section("Runtime") {
             Toggle("Prefill", isOn: $model.runtimeOptions.prefillEnabled)
                 .accessibilityIdentifier(.inspectorPrefill)
+            if model.isQwenModel {
+                Text("Prefill processes text in chunks. Turning it off processes one token at a time. Image turns may replay the conversation to preserve image positions.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
             VStack(alignment: .leading, spacing: 8) {
                 Text("RDADVISE")
                 Picker("RDADVISE", selection: $model.runtimeOptions.rdadvisePolicy) {
@@ -392,6 +408,7 @@ struct InspectorView: View {
             Text("RDADVISE is experimental. It may speed up short decodes but slow down long decodes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            }
             if model.hasStaleLoadedRuntime {
                 Text("Reload required")
                     .font(.caption)

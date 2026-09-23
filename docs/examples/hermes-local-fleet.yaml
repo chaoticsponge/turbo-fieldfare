@@ -1,0 +1,46 @@
+# Merge these inference settings into your Hermes config; retain tool permissions.
+# Use the routed server on the SAME Mac. The key is a local client placeholder.
+model:
+  default: auto
+  provider: custom
+  base_url: http://127.0.0.1:8080/v1
+  context_length: 65536
+
+fallback_providers: []
+fallback_model: null
+
+delegation:
+  # Inherit the main local provider/model; each child prompt is routed separately.
+  provider: ""
+  model: ""
+  base_url: http://127.0.0.1:8080/v1
+  api_key: local
+  fallback_providers: []
+  max_concurrent_children: 2
+  max_spawn_depth: 1
+
+# Explicit local side-task endpoints avoid existing remote auxiliary overrides.
+# Apply the same pattern to any additional auxiliary tasks/plugins you enable.
+auxiliary:
+  vision:
+    base_url: http://127.0.0.1:8080/v1
+    api_key: local
+    model: worker
+    fallback_chain: []
+  compression:
+    base_url: http://127.0.0.1:8080/v1
+    api_key: local
+    model: worker
+    fallback_chain: []
+    max_concurrency: 1
+  title_generation:
+    base_url: http://127.0.0.1:8080/v1
+    api_key: local
+    model: extract
+    fallback_chain: []
+    max_concurrency: 1
+  approval:
+    base_url: http://127.0.0.1:8080/v1
+    api_key: local
+    model: worker
+    fallback_chain: []

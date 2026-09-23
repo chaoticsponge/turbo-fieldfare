@@ -1,0 +1,71 @@
+{
+  "repoID": "leonsarmiento/Qwen3.8-27B-3bit-mlx",
+  "revision": "5fc234d9e6080b8388a11286380e801b7c9f535c",
+  "files": [
+    {
+      "name": "chat_template.jinja",
+      "bytes": 8950,
+      "sha256": "4c6ecbbd1f04d27985ea02cdbf15dfb9b8c1de9e32c56721fa2828307fa07e91"
+    },
+    {
+      "name": "config.json",
+      "bytes": 182650,
+      "sha256": "f697eed7465bf42ed4926d9352ba2e108a807cfed9dfee12e8b6590e818c540f"
+    },
+    {
+      "name": "generation_config.json",
+      "bytes": 202,
+      "sha256": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+    },
+    {
+      "name": "merges.txt",
+      "bytes": 3353259,
+      "sha256": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+    },
+    {
+      "name": "model-00001-of-00003.safetensors",
+      "bytes": 5366375264,
+      "sha256": "bf2fa4c6c41876acab1977b17f62c4fe445a76f4e06d6e0e4107544b394fbccd"
+    },
+    {
+      "name": "model-00002-of-00003.safetensors",
+      "bytes": 5343228770,
+      "sha256": "f30b8cd3280fcc91fdcd52f6909bb07c1307be63abc55f5f8f5b71be0565c473"
+    },
+    {
+      "name": "model-00003-of-00003.safetensors",
+      "bytes": 1996749947,
+      "sha256": "e9218b7cdb33ff8c9d823bba4ef7ce7920ee5c276b1f4b8f2270824f54a432bc"
+    },
+    {
+      "name": "model.safetensors.index.json",
+      "bytes": 233025,
+      "sha256": "b3e2b0b1ebdf943b3d32e44fdb2983ac678096808815cedb349441b98015984f"
+    },
+    {
+      "name": "preprocessor_config.json",
+      "bytes": 390,
+      "sha256": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+    },
+    {
+      "name": "tokenizer.json",
+      "bytes": 12809320,
+      "sha256": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "bytes": 16355,
+      "sha256": "74545960e71b3c20fab01121eb0c5d94fb347945f2acc775e5900e9b5f023a6d"
+    },
+    {
+      "name": "video_preprocessor_config.json",
+      "bytes": 385,
+      "sha256": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+    },
+    {
+      "name": "vocab.json",
+      "bytes": 6722759,
+      "sha256": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+    }
+  ]
+}

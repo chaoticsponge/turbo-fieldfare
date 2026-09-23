@@ -13,6 +13,17 @@ public enum AppModelInstallationProbe {
         descriptor: AppModelInstallDescriptor = .default
     ) -> AppModelInstallationStatus {
         let directory = directory.standardizedFileURL
+        if QwenModelPackage.isQwen(at: directory) {
+            do {
+                try QwenModelPackage.validate(at: directory)
+                if let expected = QwenModelVariant.matching(repoID: descriptor.repoID),
+                   try QwenModelPackage.variant(at: directory) != expected {
+                    return .partial("installed checkpoint does not match \(descriptor.displayName)")
+                }
+                return .complete
+            }
+            catch { return .partial(String(describing: error)) }
+        }
         let manifestURL = directory.appendingPathComponent("manifest.json")
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             return .missing

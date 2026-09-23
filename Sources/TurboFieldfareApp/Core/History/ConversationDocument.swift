@@ -109,7 +109,9 @@ public struct ConversationDocument: Sendable {
                 // never be continued again.
                 guard let span = imageSpan(
                     in: tokens, softTokens: image.softTokens,
-                    offset: tokenIDs.count, alreadyPlaced: indexInTurn) else {
+                    offset: tokenIDs.count, alreadyPlaced: indexInTurn,
+                    placeholder: QwenModelVariant.matching(repoID: opened.meta.identity.modelID) != nil
+                        ? QwenImageInputs.imageToken : MultimodalPromptRenderer.imageTokenID) else {
                     failure = .imageSpanNotInItsTurn
                     break
                 }
@@ -144,8 +146,7 @@ public struct ConversationDocument: Sendable {
     /// Located rather than stored: a recorded offset and a recorded token
     /// sequence can disagree, and then the tower's features land on text.
     private static func imageSpan(in tokens: [Int32], softTokens: Int,
-                                  offset: Int, alreadyPlaced: Int) -> Int? {
-        let placeholder = MultimodalPromptRenderer.imageTokenID
+                                  offset: Int, alreadyPlaced: Int, placeholder: Int32) -> Int? {
         var index = 0
         var seen = 0
         while index < tokens.count {

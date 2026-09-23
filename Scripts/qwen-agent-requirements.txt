@@ -1,0 +1,2 @@
+# oMLX v0.6.4, pinned independently of the native Swift app.
+omlx @ git+https://github.com/jundot/omlx@1d7826185c5b5b69b38b27cbe57d7597b7551fd7

@@ -16,6 +16,8 @@ let package = Package(
         .executable(name: "TurboFieldfareServer", targets: ["TurboFieldfareServer"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", exact: "3.31.3"),
+        .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.3"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),
         .package(url: "https://github.com/apple/swift-nio.git", exact: "2.101.3"),
         // Pinned by revision: tag 1.7.3 predates the `\left...\right`
@@ -65,10 +67,24 @@ let package = Package(
         ),
         .target(
             name: "TurboFieldfareAppCore",
-            dependencies: ["TurboFieldfare", "TurboFieldfareRepackCore", "TurboFieldfareDecodeProtocol"],
+            dependencies: [
+                "TurboFieldfare", "TurboFieldfareRepackCore", "TurboFieldfareDecodeProtocol",
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXNN", package: "mlx-swift"),
+                .product(name: "Tokenizers", package: "swift-transformers"),
+            ],
             path: "Sources/TurboFieldfareApp/Core",
             resources: [
                 .copy("Resources/app-prompts.json"),
+                .copy("Resources/qwen-model.json"),
+                .copy("Resources/qwen-3.8-27b-8bit.json"),
+                .copy("Resources/qwen-3.5-4b.json"),
+                .copy("Resources/qwen-3.5-9b.json"),
+                .copy("Resources/qwen-3-14b.json"),
+                .copy("Resources/qwen-3-32b.json"),
             ]
         ),
         .target(

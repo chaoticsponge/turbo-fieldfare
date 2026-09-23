@@ -40,7 +40,7 @@ enum DecodeServiceError: Error, CustomStringConvertible {
         }
 
         DecodeUnixSocket.ignoreSIGPIPEProcessWide()
-        let client = RealInferenceClient()
+        let client = InstalledModelInferenceClient()
         let commands = DecodeCommandQueue()
         let loadInFlight = ServiceLoadCancellation()
         let input = Thread {

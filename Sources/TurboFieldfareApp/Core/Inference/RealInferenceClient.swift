@@ -12,6 +12,7 @@ final class GenerationTaskRegistry: Sendable {
     private let state = Mutex<Entry?>(nil)
 
     var hasActiveGeneration: Bool { state.withLock { $0 != nil } }
+    var currentTask: Task<Void, Never>? { state.withLock { $0?.task } }
 
     func reserve(_ id: UUID) -> Bool {
         state.withLock { entry in

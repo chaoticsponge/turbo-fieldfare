@@ -1,442 +1,190 @@
 <p align="center">
-  <img src="docs/assets/turbofieldfare-logo-rounded.png" alt="TurboFieldfare logo: a fieldfare inside a segmented cache ring" width="280">
+  <img src="docs/assets/turbofieldfare-logo-rounded.png" alt="TurboFieldfare" width="220">
 </p>
 
-<h1 align="center">TurboFieldfare</h1>
+# TurboFieldfare — Qwen for Apple Silicon
 
-<p align="center">
-  <strong>Gemma 4 26B-A4B inference in about 2 GB of RAM</strong><br>
-  A custom Swift + Metal runtime for any Apple Silicon Mac, even the 8 GB ones.
-</p>
+The native Mac app now uses **Qwen3.8-27B** through **MLX Swift and Metal**, with
+the existing chat interface, sidebar, conversation history, image attachments,
+streaming responses, cancellation, sampling controls, and memory HUD.
+The sibling `TurboFieldfareDecodeService` owns the model; the foreground app
+does not load a second copy of its weights. MLX runs on the Apple GPU using
+the Mac's unified memory.
 
-<p align="center">
-  <img alt="Swift 6.2" src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white">
-  <img alt="Metal 4" src="https://img.shields.io/badge/Metal-4-5E5CE6">
-  <img alt="macOS 26 or later" src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&logoColor=white">
-  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/License-Apache%202.0-2ea44f"></a>
-</p>
+## Build and open
 
-<p align="center">
-  <a href="#try-it">Quick start</a> ·
-  <a href="docs/OPENAI_SERVER.md">Local server</a> ·
-  <a href="docs/BENCHMARKS.md">Benchmarks</a> ·
-  <a href="docs/COMMUNITY_BENCHMARKS.md">Contribute results</a> ·
-  <a href="docs/SYSTEM_DESIGN.md">How it works</a> ·
-  <a href="docs/OPTIMIZATION_JOURNEY.md">Experiments</a> ·
-  <a href="docs/IMPLEMENTATION_REFERENCES.md">References</a>
-</p>
-
-![TurboFieldfare Mac app generating text with Gemma 4 26B-A4B](docs/assets/turbofieldfare-app.webp)
-
-Memory got expensive. So I gave a 26-billion-parameter model a ~2 GB budget.
-
-TurboFieldfare runs the instruction-tuned
-**[Gemma 4 26B-A4B](https://ai.google.dev/gemma/docs/core/model_card_4)**
-without loading the entire 14.3 GB model into memory. It keeps the shared
-1.35 GB core and FP16 KV cache in memory, then streams only the experts needed
-for each token from SSD. This is what lets the model run on Macs with 8 GB of
-RAM.
-
-The runtime, streaming installer, CLI, and native Mac app are written in Swift
-and Metal. TurboFieldfare is model-specific rather than a wrapper around MLX or
-llama.cpp. The curated [experiment record](docs/experiments/EXPERIMENT_INVENTORY.md)
-summarizes 103 measured results across kernels, caching, I/O, prefill, and
-decode.
-
-## Try it
+Requires Apple Silicon, macOS 26+, Xcode with Swift 6.2+, and the Metal Toolchain.
+If Xcode reports that the Metal Toolchain is missing, install it once:
 
 ```bash
-git clone https://github.com/drumih/turbo-fieldfare.git
-cd turbo-fieldfare
-swift build -c release
+xcodebuild -downloadComponent MetalToolchain
+```
+
+Then build the app, its sibling service, and MLX's GPU shaders:
+
+```bash
+bash Scripts/build-qwen.sh
 .build/release/TurboFieldfareMac
 ```
 
-On the first run, Swift Package Manager downloads and builds the Swift packages
-required by the tokenizer. The complete release build includes the foreground
-Mac app and its sibling decode-service executable.
+Command-line `swift build` alone does not compile MLX's Metal shaders. The build
+script places `mlx.metallib` beside both executables and reuses it while the
+shader sources and compiler remain unchanged. Keep these executables, their
+resource bundles, and `mlx.metallib` together.
 
-When the app opens, choose **Download** and let TurboFieldfare fetch and repack
-the pinned model (about 15 GB). Once it is ready, choose **Load Model**, type
-your prompt, and press **Generate**.
+Choose **Download**, then **Load Model**. In a source checkout the installation
+goes to `scratch/qwen3.8-27b.mlx`; otherwise it lives under the app's Application
+Support directory. Start with **4K context** on the 18 GB M3 Pro. Larger contexts
+and image turns require additional memory.
 
-## At a glance
+Use the model dropdown in the status bar or installation screen to choose an
+installed model or a compatible package under **Available to Download**:
 
-| Metric          | Value                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Model           | Gemma 4 26B-A4B IT, 26B total parameters, about 3.88B active per token                                                   |
-| Weights         | MLX affine 4-bit, group 64; 8-bit router; 4-bit shared and routed experts                                                |
-| Memory          | ~2 GB of weights and 4K KV cache                                                                                         |
-| Storage         | About 14.3 GB for the text model, plus about 1.1 GB for the optional image pack                                          |
-| Hardware        | Apple Silicon Mac; 8 GB of RAM                                                                                            |
-| Platform        | macOS 26, Metal 4, Swift 6.2                                                                                             |
-| M2 measured decode | [5.1-6.3 tok/s](docs/BENCHMARKS.md#m2-measured-decode) on an 8 GB M2 MacBook Air |
-| M5 measured decode | [31-35 tok/s](docs/BENCHMARKS.md#m5-measured-decode) on a 24 GB M5 Pro |
-| Community Reports | [Here](docs/COMMUNITY_BENCHMARKS.md#community-results) |
+| Model | Download | Format | Input |
+| --- | --- | --- | --- |
+| [Qwen3.5 4B](https://huggingface.co/mlx-community/Qwen3.5-4B-4bit) | 3.06 GB | MLX 4-bit | Text and images |
+| [Qwen3.5 9B](https://huggingface.co/mlx-community/Qwen3.5-9B-4bit) | 5.98 GB | MLX 4-bit | Text and images |
+| [Qwen3 14B](https://huggingface.co/mlx-community/Qwen3-14B-4bit) | 8.32 GB | MLX 4-bit | Text only |
+| Qwen3.8 27B | 12.73 GB | MLX 3-bit | Text and images |
+| [Qwen3.8 27B, 64 GB Mac option](https://huggingface.co/mlx-community/Qwen3.8-27B-8bit) | 29.53 GB | MLX 8-bit | Text and images |
+| [Qwen3 32B](https://huggingface.co/mlx-community/Qwen3-32B-4bit) | 18.45 GB | MLX 4-bit | Text only |
 
-The measured result is a reference point, not a performance ceiling. Prompt
-length, generated length, page-cache state, and hardware all affect throughput.
-See [community benchmark results](docs/COMMUNITY_BENCHMARKS.md#community-results)
-from other Macs, or follow the
-[community benchmark guide](docs/COMMUNITY_BENCHMARKS.md) to add your own.
+Choose a model, click **Download** (or **Resume**), then **Load Model**. Selecting
+a model does not start a download. The installer shows download size, required
+disk space, and progress. Download sizes are not runtime memory requirements.
+Each variant has a separate installation directory, pinned revision, verified
+file hashes, resumable download, and conversation history. The 27B launch
+default is unchanged. The 14B and 32B models use the text runtime and reject
+image attachments, including during history replay. Qwen chat formatting preserves earlier reasoning to
+match the app's retained token history.
 
-## Using TurboFieldfare
+On a 64 GB Mac, choose **Qwen3.8 27B MLX 8-bit (64 GB Mac)** for the
+higher-precision package. It installs separately in `scratch/qwen3.8-27b-8bit.mlx`,
+pinned to revision `815b83c0df8ffd1d1b5244cf75fd6ef14fca9ef9`, with a
+29,531,519,120-byte download. Selecting it does not download or load it automatically.
+It needs roughly 30 GB for weights plus conversation state, image processing,
+temporary allocations, and macOS; the smaller 3-bit option remains available.
 
-TurboFieldfare provides a native Mac app, a command-line interface, and an
-experimental loopback OpenAI-compatible server. They use the same `.gturbo`
-model directory, but only one model-owning product should run at a time.
+Both packages use the same native MLX/Metal path: quantized weights in Apple
+Silicon unified memory, one model owner in the sibling service, bounded text
+prefill, and reuse of the live conversation cache. Switching unloads the previous
+model before loading the next. The reusable allocation cache defaults to 64 MiB;
+New Chat and unload release unused cached allocations, and failed/cancelled loads
+also clean up. These controls do not shrink the model's weight storage or promise
+a measured peak RAM figure. Loading refuses a package whose weights alone exceed
+Metal's recommended working-set budget; passing that check does not guarantee
+that a long conversation will fit. Start with a modest context and increase it after
+checking memory pressure on the target Mac.
 
-The Swift package exposes six products:
+This model option provides chat and image inference. Autonomous browser, terminal,
+SSH, email, and scheduled job execution require a separate agent/tool integration;
+adding this package does not enable those actions.
 
-| Product | Purpose |
-| --- | --- |
-| `TurboFieldfare` | Swift library containing the runtime and Metal kernels |
-| `TurboFieldfareMac` | Native Mac app for installation and generation |
-| `TurboFieldfareDecodeService` | One-shot local model and Metal owner used by the Mac app |
-| `TurboFieldfareCLI` | Command-line instruction chat and raw completion |
-| `TurboFieldfareServer` | Loopback OpenAI-compatible Chat Completions server |
-| `TurboFieldfareRepack` | Streaming model installer and install verifier |
+For Hermes/OpenClaw subagents, the [dedicated Qwen API server](docs/QWEN_AGENT_SERVER.md)
+uses continuous batching with one model and two active requests by default.
+Run it instead of the native app; it reuses the verified 8-bit installation.
+The server also accepts the other five verified Qwen packages via `--model`.
+For repeated agent prompts, `--prefix-cache-gb 4` enables a bounded SSD prefix
+cache while leaving the additional hot RAM cache disabled.
 
-### Requirements
+For a local specialist fleet, use [prompt routing and concurrent models](docs/LOCAL_AGENT_FLEET.md).
+It adds Qwen3-Coder, GLM research, a small extraction worker, embeddings, and
+reranking behind one Hermes/OpenClaw endpoint. Different models may generate
+concurrently when their combined memory reservation fits; idle models are
+reclaimed as needed. The optional 3-bit general worker leaves more room for
+overlapping large specialists. Install/launch commands and local client settings
+are included in the guide.
 
-- An Apple Silicon Mac; the validated target is an 8 GB M2 MacBook Air
-- macOS 26 with Metal 4
-- Xcode 26 and Swift 6.2 or newer
-- Enough free storage for the ~14.3 GB model installation
-- An internet connection for the first model install
+Installed-model discovery scans the current model's parent, the checkout's
+`scratch` directory (when available), and
+`~/Library/Application Support/TurboFieldfare`. Incomplete packages and vision
+companions are excluded. The list refreshes when the app becomes active; use
+**Refresh Installed Models** in the inspector to rescan manually. Switching
+releases the previous model and is disabled during active operations.
 
-The package is arm64-only. Older macOS and Metal versions are not supported.
+## Model
 
-### Prompting the model
+The default 27B installation is pinned to
+[`leonsarmiento/Qwen3.8-27B-3bit-mlx`](https://huggingface.co/leonsarmiento/Qwen3.8-27B-3bit-mlx),
+revision `5fc234d9e6080b8388a11286380e801b7c9f535c`.
+The complete download is **12,729,681,276 bytes**, including vision and tokenizer
+files. Every file has a pinned SHA-256 checksum in
+[the installer catalog](Sources/TurboFieldfareApp/Core/Resources/qwen-model.json).
 
-The Mac app treats what you type as an instruction and handles Gemma's chat
-formatting automatically. Just describe the task and include any context the
-model needs.
+This is a mixed 3-bit MLX quantization of the requested 27B model, selected for
+the 18 GB Mac. It is a different weight encoding from Ollama's
+`qwen3.8:27b-mlx` and `qwen3.8:27b-mlx-bf16` tags. BF16 is not installed by this
+app. Download size is not peak runtime memory, and Gemma's earlier 2–4 GB
+memory measurements do not apply to this dense model.
 
-Generation defaults to temperature `0.2`, Top-K `64`, and Top-P `0.95`. Set
-temperature to `0` for deterministic greedy output. The model can still repeat
-itself or give incorrect answers, so check important results.
+The installer writes one MLX installation, verifies each completed file, and
+publishes its completion receipt only after all files pass. Cancellation keeps
+verified complete files for the next attempt; an interrupted file restarts.
+**Discard saved download** removes only a recognized partial Qwen installation.
+The original Gemma model is neither converted nor deleted.
 
-The app and CLI support user and model messages plus optional system guidance;
-they do not expose or execute tools. The loopback server accepts function-tool
-declarations and returns model-produced tool calls for the client to authorize
-and execute. Audio and video are not supported.
+## Conversation history
 
-### Images
+The app keeps its local conversation sidebar and records Qwen's exact prompt
+and generated token IDs. Browsing history leaves the active lineage alone;
+continuing a saved chat replays its recorded inputs. Model identity and template
+identity keep Qwen and Gemma token histories separate.
 
-Images are supported through a vision tower, which installs as a companion
-pack beside the text model. Install it once and the app, CLI, and server all
-accept images. Without it they tell you image support is unavailable, and the
-text runtime is untouched. The image tower requires an M2 or newer Apple
-Silicon Mac; text-only inference remains available on M1.
+Text continuations reuse Qwen's attention and recurrent state. A turn that adds
+another image replays the conversation so image positions remain correct; the
+HUD reports zero reused tokens for that replay. **New Chat** clears the active
+conversation. Reloading or unloading releases the live model context.
 
-[System design](docs/SYSTEM_DESIGN.md#images) covers how the tower runs and
-what it costs on an 8 GB machine.
+Image support is included in the model download. Images are processed within a
+512-pixel bounding box, with a 256-token maximum per image. Saved chats retain
+the prepared Qwen image tensors with checksums, plus display thumbnails. Missing
+or modified image inputs refuse replay rather than silently becoming text-only
+conversations.
 
-### Mac app
+## Controls
 
-Clone the repository, then run the app from its root:
+- Context, temperature, Top-K, and Top-P remain in the inspector.
+- **Allocation cache** sets MLX's reusable allocation budget; model weights and
+  conversation state are additional memory. Reload to change the budget.
+- **Prefill** uses bounded chunks for text. Turning it off processes text one
+  token at a time, including history replay. Intermediate text chunks evaluate
+  only KV/recurrent state; only the final chunk evaluates vocabulary scores.
+  Image prefill uses MLX's multimodal preparation path.
+- **Stop** keeps a reply completed through the last token boundary. Cancellation
+  or failure before decoding rewinds the turn for retry.
+- The HUD reports service memory, generation rate, context use, and token reuse.
+  Last-run diagnostics include prefill and time to first token.
 
-```bash
-swift build -c release
-.build/release/TurboFieldfareMac
-```
+Qwen uses the pinned model's thinking template with low reasoning effort and
+preserved reasoning history. Gemma-specific expert-cache and RDADVISE controls
+are replaced by the applicable MLX controls; their former memory estimates are
+not presented as Qwen measurements.
 
-Build the complete package so the app and its sibling decode service are both
-available. When launched from this checkout, the app stores the model in
-`scratch/gemma4.gturbo`.
+## Validation
 
-#### Install the model
-
-On first launch, the app checks the available storage and shows the download
-and installed sizes. Choose **Download** to begin.
-
-The installer never materializes the full source checkpoint. It streams the
-required byte ranges from the pinned Hugging Face revision and repacks them
-directly into the `.gturbo` layout as they arrive. This avoids a second full
-checkpoint on disk and keeps scratch memory bounded.
-
-The first installation transfers about 15 GB through bounded Hugging Face
-range requests. Network speed and Hugging Face response times vary, so it can
-take a while. The completed `.gturbo` installation occupies about 14.3 GB and
-is accepted only after its manifest and file hashes have been validated.
-Installation does not load the model into memory.
-
-#### Load and generate
-
-After installation:
-
-1. Choose **Load Model**.
-2. Enter a prompt in the composer.
-3. Choose **Generate**, or press <kbd>Command</kbd>+<kbd>Return</kbd>. Use **Settings > Send Message With** to choose Return or Command-Return.
-4. Send another message to continue the conversation, or choose **New Chat** to start over.
-5. Use the stop button or <kbd>Escape</kbd> to end generation early.
-
-The status bar shows generation progress, decode speed, and memory use. Use the
-right pane to configure sampling, context length, expert-cache slots, and
-runtime options. See [Runtime controls](docs/RUNTIME_CONTROLS.md) for details
-and defaults.
-
-#### Conversation history
-
-The app saves chats locally so you can browse and continue them from the
-sidebar. Only one conversation's model context (KV cache) stays in memory.
-Browsing other chats keeps that cache intact; continuing another chat replaces
-it. **New Chat** starts fresh.
-
-### Command-line interface
-
-The CLI uses an existing `.gturbo` installation. If you installed the model
-through the Mac app, it is already available at `scratch/gemma4.gturbo`.
-Otherwise, install it from the command line:
-
-```bash
-swift run -c release TurboFieldfareRepack \
-  --output scratch/gemma4.gturbo \
-  --overwrite
-```
-
-Continue a cancelled or interrupted download:
+Run focused tests through the repository's serial runner:
 
 ```bash
-swift run -c release TurboFieldfareRepack \
-  --output scratch/gemma4.gturbo \
-  --overwrite \
-  --resume
+bash Scripts/test.sh -c release --filter Qwen
 ```
 
-Remove saved download state:
+Tokenizer-asset tests additionally accept `QWEN_TOKENIZER_TEST_DIRECTORY`, a
+directory containing the pinned tokenizer and preprocessing files. They do not
+load model weights. [Validation notes](docs/QWEN_VALIDATION.md) distinguish
+compiled and tested behavior from real-model measurements.
+The [8-bit validation report](docs/QWEN_8BIT_VALIDATION.md) records the release
+build and model-free checks against the 64 GB option's actual assets.
 
-```bash
-swift run -c release TurboFieldfareRepack \
-  --discard-partial \
-  --output scratch/gemma4.gturbo
-```
+## Original Gemma tools
 
-The runtime accepts only a completed `.gturbo` directory with a final
-`manifest.json`.
+This conversion targets the Mac app and its decode service. The original
+`TurboFieldfareCLI`, `TurboFieldfareServer`, `TurboFieldfareRepack`, and `.gturbo`
+runtime still target Gemma. Their previous documentation is preserved in
+[the Gemma runtime reference](docs/GEMMA_RUNTIME.md),
+[the server guide](docs/OPENAI_SERVER.md), and
+[the community benchmark protocol](docs/COMMUNITY_BENCHMARKS.md).
 
-Verify an existing installation without loading the model:
+## License
 
-```bash
-swift run -c release TurboFieldfareRepack \
-  --verify-install \
-  --input-gturbo scratch/gemma4.gturbo
-```
-
-#### Install image support
-
-The companion pack installs beside the text model:
-
-```bash
-swift run -c release TurboFieldfareRepack \
-  --vision-output scratch/gemma4.vision.gturbo \
-  --text-model scratch/gemma4.gturbo
-```
-
-The pack adds about 1.1 GB. Verify it with `--verify-vision-install`, remove an
-installed one with `--remove-vision-install`, and drop a cancelled download with
-`--discard-partial --vision-output <dir>`. A cancelled transfer can also be
-continued with `--resume`. The Mac app installs the same pack from its
-**Image Support** section.
-
-#### Send an image
-
-```bash
-swift run -c release TurboFieldfareCLI \
-  --model scratch/gemma4.gturbo \
-  --chat-prompt "What is in this picture?" \
-  --image photo.jpg
-```
-
-`--image` is repeatable and requires `--chat-prompt`; it cannot be combined
-with `--prompt` or `--messages-file`. Without the companion pack the run stops
-and says image support is unavailable.
-
-A multi-turn conversation carries its images inside the messages file instead,
-as `image_file` parts in any user message; `--image` covers the single-turn
-case only. Either route needs at least 16 expert-cache slots, because an image
-prompt always prefills chunked.
-
-#### Instruction chat
-
-Put chat messages in a JSON array and pass it with `--messages-file`:
-
-```json
-[
-  {"role": "user", "content": "Explain why chunked prefill reduces time to first token while keeping memory bounded."}
-]
-```
-
-```bash
-swift run -c release TurboFieldfareCLI \
-  --model scratch/gemma4.gturbo \
-  --messages-file messages.json
-```
-
-This formats messages in the same way as the Mac app. The CLI response limit
-is set with `--max-new`, which defaults to 1,024 tokens. The Mac app can
-generate until the selected context window is full.
-
-Common generation options include `--max-context`, `--temperature`, `--top-k`,
-`--top-p`, `--repetition-penalty`, `--seed`, and repeatable `--stop` strings.
-Runtime options include `--expert-cache-slots`, `--expert-cache-policy`,
-`--prefill`, `--prefill-chunk-tokens`, and `--rdadvise`; omitted options use
-the [production defaults](docs/RUNTIME_CONTROLS.md). Run the following command
-for the complete option list:
-
-```bash
-swift run -c release TurboFieldfareCLI --help
-```
-
-Generated text goes to standard output. Timing statistics go to standard error;
-add `--quiet` to suppress that footer in scripts.
-
-### Local OpenAI-compatible server
-
-Build the server and point it at an installed model:
-
-```bash
-swift build -c release --product TurboFieldfareServer
-.build/release/TurboFieldfareServer \
-  --model scratch/gemma4.gturbo
-```
-
-It listens on `http://127.0.0.1:8080/v1` and supports Chat Completions,
-streaming, function tools, and single-prefix prompt reuse. The client must
-authorize and run every tool call. Keep the server on loopback; it has no
-remote authentication or TLS.
-
-See [Local server](docs/OPENAI_SERVER.md) for a test request, Python and
-OpenCode setup, prompt reuse, tool handling, and the supported API subset.
-
-## Test and contribute
-
-Run the public test suite serially:
-
-```bash
-Scripts/test.sh
-```
-
-Before starting a model run, close memory-heavy apps and check
-`memory_pressure -Q`. If it reports little free memory, postpone the run. Run
-only one TurboFieldfare app, decode service, CLI, server, test, or other
-local-model process at a time.
-
-To contribute a comparable performance result, follow the
-[community benchmark guide](docs/COMMUNITY_BENCHMARKS.md).
-
-## How the inference engine works
-
-At each transformer layer, Metal computes attention and the router from
-resident weights. The CPU uses the router's top-8 expert IDs to plan against
-the layer's 16-slot LFU cache, then fills misses with bounded parallel `pread`
-calls into Metal-visible buffers. Metal computes the resident shared-expert
-branch while those reads run, then combines the shared and routed outputs.
-
-Prompt prefill uses chunks of up to 128 tokens so one fetched expert can serve
-multiple rows. Generation repeats the routed layer loop one token at a time.
-The installer applies the same bounded-memory rule: it repacks remote ranges
-directly into `.gturbo` without staging a full shard or tensor.
-
-For a video overview of TurboFieldfare, see Better Stack's
-[Local AI On Apple Silicon uses 7X Less RAM](https://youtu.be/vHhephsP6vU).
-
-For a visual introduction to the model architecture, see Maarten Grootendorst's
-[A Visual Guide to Gemma 4](https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-gemma-4).
-
-[System design](docs/SYSTEM_DESIGN.md) explains the `.gturbo` layout, memory
-ownership, prefill, router handoff, `cb1`/`io`/`cb2` phases, Metal kernels, and
-correctness invariants.
-
-## Status and scope
-
-TurboFieldfare currently includes:
-
-- Remote streaming repack into the `.gturbo` model format
-- Instruction-tuned Gemma 4 26B-A4B with verified chat formatting
-- 4-bit MLX affine embedding, attention, shared-expert, and routed-expert
-  weights, with an 8-bit router
-- Custom Metal kernels for quantized GEMV, attention, MoE, normalization,
-  RoPE, sampling, and production fusions
-- SSD-backed routed-expert streaming with a bounded expert cache
-- Chunked prefill for one-shot prompts and new conversational turns, followed
-  by token-by-token generation
-- FP16 KV storage with bounded circular storage for 25 sliding-window layers
-  and linear storage for 5 full-attention layers
-- Exact split-K/V decode attention with distinct normalized K and V paths
-- A Swift library, streaming installer, command-line interface, loopback
-  OpenAI-compatible server, and native SwiftUI/AppKit Mac app with a sibling
-  local decode service
-- Optional image input from a separately installed companion pack: the vision
-  tower runs on bounded scratch, image rows attend in both directions inside
-  the sliding-window layers, and routed experts are released while the tower
-  runs
-
-Current scope is text input from the pinned Gemma 4 26B-A4B instruction
-checkpoint on Apple Silicon Macs with at least 8 GB of RAM, plus image input
-on M2 or newer Macs. Audio and video are out of scope.
-
-### Future work
-
-- Build iPhone and iPad apps, then measure inference speed and memory use on
-  mobile hardware.
-- Benchmark more Apple Silicon Macs, especially the base 16 GB M4 Mac mini and
-  other 8 GB models.
-
-## Experiments and technical documentation
-
-The [experiments that shaped TurboFieldfare](docs/OPTIMIZATION_JOURNEY.md)
-explain the largest wins, the plausible ideas that failed, and the early
-results that reversed under stronger validation. The detailed
-[experiment record](docs/experiments/EXPERIMENT_INVENTORY.md) keeps all 103
-audited entries as optional evidence.
-
-Useful entry points:
-
-- [Local OpenAI-compatible server](docs/OPENAI_SERVER.md)
-- [System design](docs/SYSTEM_DESIGN.md)
-- [Benchmarks](docs/BENCHMARKS.md)
-- [The experiments that shaped TurboFieldfare](docs/OPTIMIZATION_JOURNEY.md)
-- [Experiment inventory and summaries](docs/experiments/EXPERIMENT_INVENTORY.md)
-- [Implementation references](docs/IMPLEMENTATION_REFERENCES.md)
-
-## License and model terms
-
-TurboFieldfare's source and documentation are licensed under the
-[Apache License 2.0](LICENSE).
-
-Model weights are not included. The installer downloads them separately from
-the pinned Hugging Face checkpoint, and the weights remain governed by their
-source terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the model
-and Swift package license review.
-
-TurboFieldfare is an independent research project. It is not affiliated with,
-sponsored by, or endorsed by Google.
-
-## Afterword and the project name
-
-Thanks for checking out this project!
-
-My name is Andrey Mikhaylov. You can find me on
-[LinkedIn](https://www.linkedin.com/in/andrey-mikhaylov-ios-dev/).
-I am the author of TurboFieldfare and an iOS and Metal engineer. Most of my
-work is with images, video, and on-device AI.
-
-I dedicate this project to my wife, Sasha, the most supportive person I know.
-She stands by me even through the hardest times. She loves wildlife, goes
-birdwatching, and volunteers with our local birding community. Because of her,
-I have also grown closer to birds and nature.
-
-TurboFieldfare is named after the fieldfare, a member of the thrush family and
-my favourite bird. It is not the most noticeable or brightly coloured bird, but
-it definitely has a character and unique features of its own. I think the same
-is true of this project: it may not be the most practical, but I built it with
-my favourite tools, especially Metal, in my favourite field, on-device ML
-inference. It definitely has its own character and unique features.
-
-Next time you are outside, touch the grass and listen to the birds. Sometimes
-it is the most beautiful thing you can do. And if you can, support your local
-wildlife community. They do important work.
-
-Thank you!
+[Apache License 2.0](LICENSE). MLX Swift and MLX Swift LM are upstream dependencies
+with their own licenses. The model repository publishes its model license.

@@ -1,0 +1,76 @@
+{
+  "repoID": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+  "revision": "6e302ea604ad9ab206367e2c501d1571023e7b6d",
+  "files": [
+    {
+      "name": "added_tokens.json",
+      "bytes": 707,
+      "sha256": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680"
+    },
+    {
+      "name": "chat_template.jinja",
+      "bytes": 6722,
+      "sha256": "672e747c77e990320152343b0a4951222e40de5645297905d89afba05586d827"
+    },
+    {
+      "name": "config.json",
+      "bytes": 10897,
+      "sha256": "8200545374776769bfd5ae4a30533990c96ca1cad625a9500194f46a8549fa13"
+    },
+    {
+      "name": "generation_config.json",
+      "bytes": 180,
+      "sha256": "c99723ab3ba28630d26ae23def77603b540a46924895af5cf234740d3b27b51d"
+    },
+    {
+      "name": "merges.txt",
+      "bytes": 1671853,
+      "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+    },
+    {
+      "name": "model-00001-of-00004.safetensors",
+      "bytes": 5321473414,
+      "sha256": "25c6d0a62e02224605774ce2e9dc9a8c95910cde33557b938e55a368da1b5212"
+    },
+    {
+      "name": "model-00002-of-00004.safetensors",
+      "bytes": 5366644780,
+      "sha256": "7007ce495b063155207c3e8b4038771d0d751655274cb6b76c42b8d9c0624412"
+    },
+    {
+      "name": "model-00003-of-00004.safetensors",
+      "bytes": 5276887419,
+      "sha256": "a14f5bfdd0cd72ee6e71e7f0bc72f6fcde4d78a2da7ee0665f8cf071ac7d2675"
+    },
+    {
+      "name": "model-00004-of-00004.safetensors",
+      "bytes": 1216066381,
+      "sha256": "0ea3484a221d674b60c604ea20cb5e5418a2cfd9e61df72c0d7fb5b1622ff5b4"
+    },
+    {
+      "name": "model.safetensors.index.json",
+      "bytes": 119598,
+      "sha256": "c100efb419233c6be585014ebd9f5a8c2a4fe9de63be6271172f0f70f1c315ea"
+    },
+    {
+      "name": "special_tokens_map.json",
+      "bytes": 613,
+      "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd"
+    },
+    {
+      "name": "tokenizer.json",
+      "bytes": 11422654,
+      "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+    },
+    {
+      "name": "tokenizer_config.json",
+      "bytes": 5405,
+      "sha256": "05a2d456eb807c8368fe6b60101b1d1160d6889071a751ed08576b96e77e01cd"
+    },
+    {
+      "name": "vocab.json",
+      "bytes": 2776833,
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+    }
+  ]
+}
