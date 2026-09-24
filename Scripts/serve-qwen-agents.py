@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 
+from agent_files import open_regular, private_directory
 from agent_prefix_cache import prefix_cache_size, prefix_namespace, runtime_identity
 from agent_admission import cache_profile
 from agent_models import ROLES, catalog as role_catalog, model_path, route_config, context_budgets, CONTEXT_CHOICES
@@ -74,7 +75,7 @@ def validate_package(directory, catalog):
         if path.is_symlink() or not path.is_file() or path.stat().st_size != entry["bytes"]:
             raise ValueError(f"Missing or incomplete model file: {name}")
         digest = hashlib.sha256()
-        with path.open("rb") as handle:
+        with open_regular(path) as handle:
             while data := handle.read(1024 * 1024):
                 digest.update(data)
         if digest.hexdigest() != entry["sha256"]:
@@ -327,9 +328,9 @@ def main():
             print("Preflight passed; no model loaded.")
             return 0
         state_root = ROOT / ".build/qwen-agent-server"
-        state_root.mkdir(parents=True, exist_ok=True)
+        private_directory(state_root)
         # Keep this lock in the supervisor; child oMLX changes its process title.
-        with (state_root / "server.lock").open("a") as lock:
+        with open_regular(state_root / "server.lock", os.O_CREAT | os.O_RDWR, "r+") as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:

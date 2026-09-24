@@ -198,6 +198,13 @@ private final class ServerHTTPHandler: ChannelInboundHandler, @unchecked Sendabl
         switch unwrapInboundIn(data) {
         case .head(let head):
             guard !discardingUntilClose else { return }
+            guard ServerLoopbackPolicy.allows(head.headers, port: context.channel.localAddress?.port) else {
+                discardingUntilClose = true
+                writeError(context, status: .forbidden,
+                    OpenAIErrorEnvelope(message: "only direct loopback and same-origin requests are allowed",
+                                        code: "forbidden_origin"), closeAfter: true)
+                return
+            }
             self.head = head
             // The parser stages inline images to disk, so it is created only
             // once the request is known to carry a chat body. A body sent

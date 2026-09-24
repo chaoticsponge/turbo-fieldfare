@@ -6,6 +6,19 @@ chat app. The runtime can keep **different models generating concurrently**;
 all inference stays in one MLX/Metal process on the Mac. There is no cloud model
 fallback and no extra model used to classify prompts.
 
+The HTTP boundary requires a loopback `Host` matching the listening port and
+`Content-Type: application/json` for POSTs. Browser requests must be same-origin;
+cross-site or opaque origins are rejected. Uploads have a 16 MiB limit and a
+30-second deadline. Concurrent POSTs, including uploads and queued requests,
+are bounded to the configured active concurrency plus 16; excess calls return
+429. JSON rejects duplicate keys, non-finite numbers, invalid Unicode, more
+than 100,000 values, or nesting deeper than 64 levels. These are ingress limits,
+not a bound on total inference memory. The service remains unauthenticated and
+loopback-only: do not expose it through a proxy or tunnel.
+
+See the [code review and validation record](CODE_REVIEW_2026-09-24.md) for the
+implemented boundary checks, inference-loop refactors, and remaining limits.
+
 ## Selected models
 
 These are practical role choices for a 64 GB Mac, prioritizing supported MLX

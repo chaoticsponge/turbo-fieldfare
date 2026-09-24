@@ -116,7 +116,8 @@ the 256 MiB configuration.
 space, latest sampled pressure, per-model budgets, retained expert bytes,
 hits/misses, evictions, and the last adjustment reason. Retained expert bytes
 exclude allocator, KV, and runtime memory; counters update at inference
-boundaries. Cache growth happens on demand and does not preload unused experts.
+boundaries at most once per two-second adjustment interval. Cache growth happens
+on demand and does not preload unused experts.
 Full-model throughput and peak RAM with this mode remain unmeasured.
 
 ## Bounded expert read-ahead

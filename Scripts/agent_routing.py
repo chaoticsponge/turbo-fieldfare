@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from collections import deque
 import json
 import re
+from agent_http import RouteError, MAX_BODY, validate_http, decode_json, read_body
 from agent_models import weight_reservation
 from agent_admission import estimate_session
 
@@ -13,15 +14,6 @@ PATH_ROLES = {'/v1/embeddings': 'embed', '/v1/rerank': 'rerank'}
 # Request-local output reservation consumed by the engine token-count validator.
 OUTPUT_RESERVATION = ContextVar('agent_output_reservation', default=0)
 TOKEN_RESERVATION = ContextVar('agent_token_reservation', default=None)
-MAX_BODY = 16 * 1024 * 1024
-
-
-class RouteError(ValueError):
-    def __init__(self, message, status=400):
-        super().__init__(message)
-        self.status = status
-
-
 def user_intent(messages):
     # Tool results and assistant text never choose the next specialist. This
     # keeps a tool loop on its originating user intent, without stored sessions.
@@ -208,11 +200,31 @@ class AgentRouter:
         self.cache_status = cache_status
         self.prefix_status = prefix_status
         self.read_ahead_status = read_ahead_status
+        self.ingress = 0
+        self.ingress_limit = concurrency + 16
         self.gate = ModelGate(switch, concurrency, budget_bytes=budget_bytes,
                              weights={entry['model']: weight_reservation(entry)
                                       for entry in routes.values()})
 
     async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http':
+            return await self._dispatch(scope, receive, send)
+        try:
+            validate_http(scope)
+        except RouteError as error:
+            return await reply(send, error.status, {'error': {'message': str(error)}})
+        if scope['method'] != 'POST':
+            return await self._dispatch(scope, receive, send)
+        # Include uploads in the bound, before any body allocation or parsing.
+        if self.ingress >= self.ingress_limit:
+            return await reply(send, 429, {'error': {'message': 'Request capacity reached; retry later'}})
+        self.ingress += 1
+        try:
+            return await self._dispatch(scope, receive, send)
+        finally:
+            self.ingress -= 1
+
+    async def _dispatch(self, scope, receive, send):
         if scope['type'] == 'lifespan':
             return await self.app(scope, receive, send)
         if scope['type'] != 'http':
@@ -242,23 +254,19 @@ class AgentRouter:
         if method != 'POST' or path not in {'/v1/chat/completions', *PATH_ROLES}:
             return await reply(send, 404, {'error': {'message': 'Unsupported routed endpoint'}})
         try:
-            raw = bytearray()
-            while True:
-                message = await receive()
-                if message['type'] == 'http.disconnect':
-                    return
-                raw.extend(message.get('body', b''))
-                if len(raw) > MAX_BODY:
-                    raise RouteError('Request exceeds 16 MiB', 413)
-                if not message.get('more_body', False):
-                    break
-            try:
-                body = json.loads(raw)
-            except (ValueError, UnicodeError):
-                raise RouteError('Invalid JSON')
+            raw = await read_body(receive)
+            if raw is None:
+                return
+            body = decode_json(raw)
+            del raw
             role, body = resolve(path, body, self.routes)
             estimate = estimate_session(path, body, self.routes[role])
-            encoded = json.dumps(body).encode()
+            encoded = json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode()
+            if len(encoded) > MAX_BODY:
+                raise RouteError('Routed request exceeds 16 MiB', 413)
+            model = body['model']
+            output_tokens = body.get('max_tokens', 0)
+            del body
             scope = {**scope, 'headers': [(k, v) for k, v in scope.get('headers', [])
                                          if k.lower() not in (b'content-length', b'transfer-encoding')]
                      + [(b'content-length', str(len(encoded)).encode())]}
@@ -274,7 +282,7 @@ class AgentRouter:
             async def report(message):
                 if message['type'] == 'http.response.start':
                     message = {**message, 'headers': [*message.get('headers', []),
-                        (b'x-agent-role', role.encode()), (b'x-agent-model', body['model'].encode()),
+                        (b'x-agent-role', role.encode()), (b'x-agent-model', model.encode()),
                         (b'x-agent-session-bytes', str(estimate.session_bytes).encode()),
                         (b'x-agent-token-estimate', str(estimate.total_tokens or 0).encode()),
                         (b'x-agent-estimate-method', estimate.method.encode())]}
@@ -284,7 +292,7 @@ class AgentRouter:
                 while (await receive())['type'] != 'http.disconnect':
                     pass
 
-            admission = asyncio.create_task(self.gate.acquire(body['model'], estimate.session_bytes))
+            admission = asyncio.create_task(self.gate.acquire(model, estimate.session_bytes))
             gone = asyncio.create_task(disconnect())
             try:
                 done, _ = await asyncio.wait([admission, gone], timeout=300,
@@ -297,7 +305,7 @@ class AgentRouter:
                 gone.cancel()
                 with suppress(asyncio.CancelledError):
                     await gone
-                reservation = OUTPUT_RESERVATION.set(body.get('max_tokens', 0)
+                reservation = OUTPUT_RESERVATION.set(output_tokens
                     if path == '/v1/chat/completions' and 'max_context_window' in self.routes[role] else 0)
                 token_reservation = TOKEN_RESERVATION.set(estimate.total_tokens)
                 try:

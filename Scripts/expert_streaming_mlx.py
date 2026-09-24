@@ -39,12 +39,14 @@ class ExpertStore:
         self.read_ahead = None
         self.profile = layout(files, config, cache_bytes)
         self.cache = LayerExpertCache(cache_bytes, self.profile['layers'])
+        self.expert_names = {prefix: tuple(f'{prefix}.{projection}.{field}'
+            for projection in ('gate_proj', 'up_proj', 'down_proj')
+            for field in ('weight', 'scales', 'biases')) for prefix in self.profile['layers']}
+        self.expert_sizes = {prefix: sum(files.tensors[n].size // files.tensors[n].shape[0] for n in names)
+                             for prefix, names in self.expert_names.items()}
 
     def expert(self, prefix, index):
-        names = [f'{prefix}.{projection}.{field}'
-                 for projection in ('gate_proj', 'up_proj', 'down_proj')
-                 for field in ('weight', 'scales', 'biases')]
-        size = sum(self.files.tensors[n].size // self.files.tensors[n].shape[0] for n in names)
+        names, size = self.expert_names[prefix], self.expert_sizes[prefix]
         key = (prefix, index)
         def read():
             return {n:self.files.read(n, index) for n in names}
@@ -61,10 +63,7 @@ class ExpertStore:
     def prefetch(self, prefix, index):
         if self.read_ahead is None or index in self.cache.layers[prefix].entries:
             return
-        names = [f'{prefix}.{projection}.{field}'
-                 for projection in ('gate_proj', 'up_proj', 'down_proj')
-                 for field in ('weight', 'scales', 'biases')]
-        size = sum(self.files.tensors[n].size // self.files.tensors[n].shape[0] for n in names)
+        names, size = self.expert_names[prefix], self.expert_sizes[prefix]
         self.read_ahead.schedule((prefix, index), size,
             lambda: {n:self.files.read(n, index) for n in names})
 

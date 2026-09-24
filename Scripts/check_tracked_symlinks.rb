@@ -18,14 +18,16 @@
 # needed, add it to ALLOWED below with the reason, so the exemption is a
 # deliberate edit rather than a silent pass.
 
+require "open3"
+
 ROOT = File.expand_path("..", __dir__)
 
 ALLOWED = {}.freeze
 
 SYMLINK_MODE = "120000".freeze
 
-entries = `git -C #{ROOT} ls-files -s -z`
-abort "could not read the git index" unless $?.success?
+entries, status = Open3.capture2("git", "-C", ROOT, "ls-files", "-s", "-z")
+abort "could not read the git index" unless status.success?
 
 offenders = entries.split("\0").map do |entry|
   mode, rest = entry.split(" ", 2)
@@ -34,7 +36,9 @@ offenders = entries.split("\0").map do |entry|
   path = rest.split("\t", 2).last
   next nil if ALLOWED.key?(path)
 
-  target = `git -C #{ROOT} show :#{path}`.strip
+  target, status = Open3.capture2("git", "-C", ROOT, "show", ":#{path}")
+  abort "could not read symlink target" unless status.success?
+  target = target.strip
   [path, target]
 end.compact
 

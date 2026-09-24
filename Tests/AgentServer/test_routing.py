@@ -140,7 +140,7 @@ class MiddlewareTests(unittest.IsolatedAsyncioTestCase):
             await gone.wait()
             return {'type': 'http.disconnect'}
         async def send(message): sent.append(message)
-        await router({'type': 'http', 'path': path, 'method': method, 'headers': []}, receive, send)
+        await router({'type': 'http', 'path': path, 'method': method, 'headers': [(b'host', b'127.0.0.1:8080'), (b'content-type', b'application/json')]}, receive, send)
         return sent
 
     async def test_stream_passthrough_and_lease_until_final_body(self):

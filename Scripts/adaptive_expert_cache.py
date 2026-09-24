@@ -84,28 +84,29 @@ class AdaptiveExpertCaches:
             if state is None:
                 return
             now = self.clock()
+            if now - state['last_adjustment'] < self.interval:
+                return
             self._pressure(now)
             cache = store.cache
-            if now - state['last_adjustment'] >= self.interval:
-                hits = cache.hits - state['previous_hits']
-                misses = cache.misses - state['previous_misses']
-                target, reason = cache.budget, 'hold'
-                if self.pressure in ('high', 'unavailable'):
-                    target = max(state['minimum'], cache.budget // 2)
-                    reason = 'memory-pressure' if self.pressure == 'high' else 'telemetry-unavailable'
-                elif self.pressure == 'low' and hits + misses >= 32 and misses / (hits + misses) >= .10:
-                    free = self.pool_bytes - self._committed() + max(0,
-                        self.initial_budgets.get(state['name'], 0) - cache.budget)
-                    # Leave space for the cache margin used by admission too.
-                    headroom = max(0, int((self.memory_ceiling * .70 - self.used_bytes) / 1.05) - self.growth_since_sample)
-                    growth = min(self.step_bytes, free, headroom, state['maximum'] - cache.budget)
-                    target += growth
-                    self.growth_since_sample += growth
-                    reason = 'cache-misses' if growth else 'pool-or-model-limit'
-                if target != cache.budget:
-                    cache.resize(target)
-                state.update(budget=cache.budget, previous_hits=cache.hits,
-                             previous_misses=cache.misses, last_adjustment=now, reason=reason)
+            hits = cache.hits - state['previous_hits']
+            misses = cache.misses - state['previous_misses']
+            target, reason = cache.budget, 'hold'
+            if self.pressure in ('high', 'unavailable'):
+                target = max(state['minimum'], cache.budget // 2)
+                reason = 'memory-pressure' if self.pressure == 'high' else 'telemetry-unavailable'
+            elif self.pressure == 'low' and hits + misses >= 32 and misses / (hits + misses) >= .10:
+                free = self.pool_bytes - self._committed() + max(0,
+                    self.initial_budgets.get(state['name'], 0) - cache.budget)
+                # Leave space for the cache margin used by admission too.
+                headroom = max(0, int((self.memory_ceiling * .70 - self.used_bytes) / 1.05) - self.growth_since_sample)
+                growth = min(self.step_bytes, free, headroom, state['maximum'] - cache.budget)
+                target += growth
+                self.growth_since_sample += growth
+                reason = 'cache-misses' if growth else 'pool-or-model-limit'
+            if target != cache.budget:
+                cache.resize(target)
+            state.update(budget=cache.budget, previous_hits=cache.hits,
+                         previous_misses=cache.misses, last_adjustment=now, reason=reason)
             state.update(bytes=cache.bytes, hits=cache.hits, misses=cache.misses, evictions=cache.evictions)
 
     def snapshot(self):

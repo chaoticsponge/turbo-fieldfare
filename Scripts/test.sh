@@ -36,7 +36,8 @@ if [[ "${1:-}" == "--qwen" ]]; then
 fi
 # Explicit entry point for diagnosing toolchains whose `swift test` exits
 # without invoking Swift Testing. Build tests first; this runs no model weights.
-if [[ "${1:-}" == "--qwen-compiled" ]]; then
+if [[ "${1:-}" == "--qwen-compiled" || "${1:-}" == "--compiled" ]]; then
+  compiled_mode="$1"
   shift
   set -euo pipefail
   test_bin="$(swift build -c release --show-bin-path)"
@@ -49,6 +50,9 @@ if [[ "${1:-}" == "--qwen-compiled" ]]; then
     -F "$test_platform/Developer/Library/Frameworks" \
     -o "$test_bin/QwenTestRunner"
   export QWEN_TEST_BUNDLE="$test_bundle/TurboFieldfarePackageTests"
-  exec "$test_bin/QwenTestRunner" --no-parallel --filter Qwen "$@"
+  if [[ "$compiled_mode" == "--qwen-compiled" ]]; then
+    exec "$test_bin/QwenTestRunner" --no-parallel --filter Qwen "$@"
+  fi
+  exec "$test_bin/QwenTestRunner" --no-parallel "$@"
 fi
 exec swift test --no-parallel "$@"

@@ -9,13 +9,15 @@ from pathlib import Path
 import shutil
 import sys
 import urllib.request
+import urllib.parse
 
+from agent_files import open_regular
 from agent_models import ROOT, ROLES, catalog, model_path
 
 
 def digest(path):
     h = hashlib.sha256()
-    with path.open('rb') as handle:
+    with open_regular(path) as handle:
         while data := handle.read(1024 * 1024):
             h.update(data)
     return h.hexdigest()
@@ -26,7 +28,17 @@ def matches(path, entry):
             and path.stat().st_size == entry['bytes'] and digest(path) == entry['sha256'])
 
 
-def fetch_file(directory, entry, url, opener=urllib.request.urlopen):
+class HTTPSRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme != 'https':
+            raise ValueError('Model downloads cannot redirect away from HTTPS')
+        return super().redirect_request(request, fp, code, message, headers, newurl)
+
+
+def fetch_file(directory, entry, url, opener=None):
+    if urllib.parse.urlsplit(url).scheme != 'https':
+        raise ValueError('Model downloads require HTTPS')
+    opener = opener or urllib.request.build_opener(HTTPSRedirects()).open
     name = entry['name']
     if Path(name).name != name or '..' in name:
         raise ValueError('Invalid catalog path')
@@ -50,7 +62,8 @@ def fetch_file(directory, entry, url, opener=urllib.request.urlopen):
             if response.status not in (200, 206) or (not offset and response.status != 200):
                 raise ValueError('Unexpected download response')
             written = offset if append else 0
-            with partial.open('ab' if append else 'wb') as handle:
+            with open_regular(partial, os.O_CREAT | os.O_WRONLY | (os.O_APPEND if append else os.O_TRUNC),
+                              'ab' if append else 'wb') as handle:
                 while data := response.read(1024 * 1024):
                     written += len(data)
                     if written > entry['bytes']:
@@ -77,7 +90,7 @@ def install(role, root, worker_precision='8bit'):
     lock_path = directory / '.install.lock'
     if lock_path.is_symlink():
         raise ValueError('Installation lock cannot be a symlink')
-    with lock_path.open('a') as lock:
+    with open_regular(lock_path, os.O_CREAT | os.O_RDWR, 'r+') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         required = 0
         for entry in manifest['files']:
@@ -95,7 +108,8 @@ def install(role, root, worker_precision='8bit'):
         temporary = directory / 'qwen-install.json.part'
         if temporary.is_symlink():
             raise ValueError('Receipt staging file cannot be a symlink')
-        temporary.write_text(json.dumps(manifest, indent=2) + '\n')
+        with open_regular(temporary, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 'w') as handle:
+            handle.write(json.dumps(manifest, indent=2) + '\n')
         temporary.replace(receipt)
     print(f'{role}: verified installation at {directory}')
 
