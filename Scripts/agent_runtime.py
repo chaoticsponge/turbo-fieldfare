@@ -56,6 +56,11 @@ def main():
 
     streaming = {entry['expert_streaming']['directory']: entry['expert_streaming']
                  for entry in config['routes'].values() if 'expert_streaming' in entry}
+    read_ahead = None
+    read_ahead_bytes = config.get('expert_read_ahead', {}).get('pool_bytes', 0)
+    if read_ahead_bytes:
+        from expert_read_ahead import ReadAheadPool
+        read_ahead = ReadAheadPool(read_ahead_bytes)
     adaptive = None
     if streaming:
         from expert_streaming_mlx import install_loader, sample_memory
@@ -65,7 +70,7 @@ def main():
             adaptive = AdaptiveExpertCaches(limits['pool_bytes'], limits['memory_ceiling'], sample_memory,
                 initial_budgets={Path(path).name: options['cache_bytes']
                                  for path, options in streaming.items() if options.get('adaptive')})
-        install_loader(streaming, adaptive)
+        install_loader(streaming, adaptive, read_ahead)
 
     budget = config['budget_bytes']
     weights = {entry['model']: weight_reservation(entry) for entry in config['routes'].values()}
@@ -93,7 +98,8 @@ def main():
 
     server.app.add_middleware(AgentRouter, routes=config['routes'],
                               switch=switch, concurrency=config['concurrency'], budget_bytes=budget,
-                              cache_status=adaptive.snapshot if adaptive else None, prefix_status=prefix_status)
+                              cache_status=adaptive.snapshot if adaptive else None, prefix_status=prefix_status,
+                              read_ahead_status=read_ahead.snapshot if read_ahead else None)
     omlx_main()
 
 

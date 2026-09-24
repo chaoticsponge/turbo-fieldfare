@@ -96,6 +96,43 @@ class StreamedModelTests(unittest.TestCase):
                 store.close()
                 self.assertFalse(controller.snapshot()['models'])
 
+    def test_read_ahead_preserves_prefill_and_cached_continuation_for_both_models(self):
+        from expert_read_ahead import ReadAheadPool, ExpertReadAhead
+        for kind in ('qwen3_moe','glm4_moe_lite'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
+                directory=Path(folder)
+                reference=create_checkpoint(directory,tiny_config(kind))
+                model,_,store=load_streamed_model(directory,cache_bytes=20000,chunk_rows=2)
+                pool=ReadAheadPool(256*1024)
+                store.read_ahead=ExpertReadAhead(pool)
+                a_cache,b_cache=make_prompt_cache(reference),make_prompt_cache(model)
+                try:
+                    for tokens in (mx.array([[1,2,3,4,5,6]]),mx.array([[7]]),mx.array([[8,9]])):
+                        a,b=reference(tokens,cache=a_cache),model(tokens,cache=b_cache)
+                        mx.eval(a,b)
+                        self.assertTrue(mx.allclose(a,b,atol=2e-4,rtol=2e-4).item())
+                        self.assertEqual(pool.snapshot()['reserved_bytes'],0)
+                    self.assertGreater(pool.snapshot()['consumed'],0)
+                    self.assertLessEqual(pool.snapshot()['peak_reserved_bytes'],pool.limit)
+                finally:store.close()
+                self.assertTrue(store.read_ahead.closed)
+
+    def test_layer_failure_drains_read_ahead_before_file_cleanup(self):
+        from expert_read_ahead import ReadAheadPool, ExpertReadAhead
+        with tempfile.TemporaryDirectory() as folder:
+            directory=Path(folder);create_checkpoint(directory,tiny_config('qwen3_moe'))
+            model,_,store=load_streamed_model(directory,cache_bytes=20000)
+            pool=ReadAheadPool(256*1024);store.read_ahead=ExpertReadAhead(pool)
+            try:
+                with patch.object(mx,'quantized_matmul',side_effect=RuntimeError('injected compute failure')):
+                    with self.assertRaisesRegex(RuntimeError,'injected compute failure'):
+                        model.layers[0].mlp.switch_mlp(mx.ones((1,1,128)),mx.array([[[0,1]]]))
+                self.assertGreater(pool.snapshot()['submitted'],0)
+                self.assertEqual(pool.snapshot()['reserved_bytes'],0)
+                self.assertIsNone(store.read_ahead.pending)
+            finally:store.close()
+            self.assertFalse(store.files.descriptors)
+
     def test_batched_rows_duplicate_routes_and_eviction_match(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
@@ -149,14 +186,17 @@ class StreamedModelTests(unittest.TestCase):
                 with patch.object(model_loading,'lm_load_compat',return_value=('normal','tokenizer')) as fallback:
                     from adaptive_expert_cache import AdaptiveExpertCaches
                     adaptive=AdaptiveExpertCaches(100000,8000000,lambda:(1000000,8000000,10000000))
-                    install_loader({str(directory):{'cache_bytes':40000,'chunk_rows':2,
-                        'adaptive':{'min_bytes':10000,'max_bytes':80000}}},adaptive)
+                    from expert_read_ahead import ReadAheadPool
+                    reads=ReadAheadPool(256*1024)
+                    install_loader({str(directory):{'cache_bytes':40000,'chunk_rows':2,'read_ahead':True,
+                        'adaptive':{'min_bytes':10000,'max_bytes':80000}}},adaptive,reads)
                     with patch('expert_streaming_mlx.load_tokenizer',return_value='local-tokenizer'):
                         model,tokenizer=model_loading.lm_load_compat(str(directory),tokenizer_config={})
                         self.assertEqual(tokenizer,'local-tokenizer')
                         self.assertIsInstance(model.layers[0].mlp.switch_mlp,StreamedSwitchGLU)
                         self.assertIs(model.layers[0].mlp.switch_mlp.store.adaptive,adaptive)
                         self.assertEqual(adaptive.snapshot()['allocated_budget_bytes'],40000)
+                        self.assertIsNotNone(model.layers[0].mlp.switch_mlp.store.read_ahead)
                         self.assertEqual(model_loading.lm_load_compat('/not/allowlisted'),('normal','tokenizer'))
                         self.assertEqual(fallback.call_count,1)
                         (directory/'model.safetensors').write_bytes(b'broken')
@@ -178,9 +218,12 @@ class StreamedModelTests(unittest.TestCase):
                 models.append((model,store))
             from adaptive_expert_cache import AdaptiveExpertCaches
             adaptive=AdaptiveExpertCaches(100000,8000000,lambda:(7500000,500000,10000000), interval=.0001)
+            from expert_read_ahead import ReadAheadPool, ExpertReadAhead
+            reads=ReadAheadPool(256*1024)
             for i,(_,store) in enumerate(models):
                 adaptive.register(store,str(i),10000,80000)
                 store.adaptive=adaptive
+                store.read_ahead=ExpertReadAhead(reads)
             def generate(item):
                 model,_=item
                 stream=mx.new_thread_local_stream(mx.default_device())
@@ -194,3 +237,4 @@ class StreamedModelTests(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=2) as executor:
                 self.assertEqual(list(executor.map(generate,models)),[True,True])
             for _,store in models: store.close()
+            self.assertEqual(reads.snapshot()['reserved_bytes'],0)

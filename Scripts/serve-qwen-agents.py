@@ -139,7 +139,7 @@ def check_processes():
 
 
 def configure_fleet(state, roles, model_root, configured, launch, concurrency, context, worker_precision='8bit',
-                    stream_profiles=None, expert_chunk_rows=16, role_contexts=None, adaptive_cache=None):
+                    stream_profiles=None, expert_chunk_rows=16, role_contexts=None, adaptive_cache=None, read_ahead_pool_bytes=0):
     configured['model']['model_dirs'] = [str(model_path(role, model_root, worker_precision)) for role in roles]
     configured['scheduler']['embedding_batch_size'] = 4
     configured['idle_timeout'] = {'idle_timeout_seconds': 300}
@@ -153,12 +153,18 @@ def configure_fleet(state, roles, model_root, configured, launch, concurrency, c
         routes[role]['resident_weight_bytes'] = profile['planned_weight_bytes']
         routes[role]['expert_streaming'] = {'directory': str(model_path(role, model_root, worker_precision)),
             'cache_bytes': profile['cache_bytes'], 'chunk_rows': expert_chunk_rows}
+        if read_ahead_pool_bytes:
+            routes[role]['expert_streaming']['read_ahead'] = True
+            extra = min(2 * profile['largest_expert_bytes'], read_ahead_pool_bytes)
+            routes[role]['resident_weight_bytes'] += extra
+            routes[role]['expert_streaming']['read_ahead_reserved_bytes'] = extra
         if adaptive_cache:
             routes[role]['expert_streaming']['adaptive'] = adaptive_cache
             # Reserve the maximum up front: growth cannot consume session headroom.
             routes[role]['resident_weight_bytes'] += adaptive_cache['max_bytes'] - profile['cache_bytes']
     (state / 'routes.json').write_text(json.dumps({'routes': routes, 'concurrency': concurrency,
         'budget_bytes': configured['memory']['memory_guard_custom_ceiling_gb'] * 1024**3 * 0.85,
+        'expert_read_ahead': {'pool_bytes': read_ahead_pool_bytes},
         'prefix_cache': {'enabled': configured['cache']['enabled'], 'storage': 'ssd',
             'limit': configured['cache']['ssd_cache_max_size'] if configured['cache']['enabled'] else '0',
             'hot_cache_bytes': 0, 'scope': 'matching-prefix-within-model',
@@ -199,6 +205,10 @@ def main():
                         help='Adaptive per-model ceiling (MiB); admission reserves this maximum')
     parser.add_argument('--expert-cache-pool-mb', type=int, choices=[256,512,1024,2048,4096], default=1024,
                         help='Combined adaptive cache budget across streamed models (MiB)')
+    parser.add_argument('--expert-read-ahead', action='store_true',
+                        help='Read one upcoming routed expert per streamed model in the background')
+    parser.add_argument('--expert-read-ahead-mb', type=int, choices=[8,16,32], default=16,
+                        help='Shared read-ahead staging budget in MiB, including read-copy headroom')
     parser.add_argument('--expert-chunk-rows', type=int, choices=[1,4,8,16,32], default=16,
                         help='Token rows processed together inside streamed expert layers')
     parser.add_argument("--roles", nargs="+", choices=list(ROLES), default=list(ROLES),
@@ -234,6 +244,9 @@ def main():
         parser.error('--stream-experts requires --fleet')
     if args.stream_experts and not set(args.roles) & {'coder', 'research'}:
         parser.error('--stream-experts requires the coder or research role')
+    if args.expert_read_ahead and not args.stream_experts:
+        parser.error('--expert-read-ahead requires --stream-experts')
+    read_ahead_pool_bytes = args.expert_read_ahead_mb * 1024**2 if args.expert_read_ahead else 0
     adaptive_cache = None
     if args.adaptive_expert_cache:
         if not args.stream_experts:
@@ -298,6 +311,8 @@ def main():
             for index, role in enumerate(roles):
                 if role in stream_profiles:
                     planned[index] = stream_profiles[role]['planned_weight_bytes']
+                    if read_ahead_pool_bytes:
+                        planned[index] += min(2 * stream_profiles[role]['largest_expert_bytes'], read_ahead_pool_bytes)
                     if adaptive_cache:
                         planned[index] += adaptive_cache['max_bytes'] - stream_profiles[role]['cache_bytes']
         weights = max(planned)
@@ -335,7 +350,7 @@ def main():
             if args.fleet:
                 launch = configure_fleet(state, roles, model_root, configured, launch,
                                          args.concurrency, args.context, args.worker_precision,
-                                         stream_profiles, args.expert_chunk_rows, role_contexts, adaptive_cache)
+                                         stream_profiles, args.expert_chunk_rows, role_contexts, adaptive_cache, read_ahead_pool_bytes)
             (state / "settings.json").write_text(json.dumps(configured, indent=2) + "\n")
             environment = {k: v for k, v in os.environ.items() if not k.startswith("OMLX_")}
             environment["HF_HUB_OFFLINE"] = "1"

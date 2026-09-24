@@ -113,6 +113,8 @@ and the unmeasured full-model performance tradeoff.
 Add `--adaptive-expert-cache` to grow/shrink those caches within a shared pool.
 Adaptive mode reserves its maximum cache allowance during admission; see the
 same guide for limits, pressure thresholds, and live cache statistics.
+Optional `--expert-read-ahead` overlaps one upcoming routed expert read per
+model with current expert computation, using a shared bounded staging pool.
 
 ## Routing behavior
 

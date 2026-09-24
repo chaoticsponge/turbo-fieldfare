@@ -1,5 +1,55 @@
 # Expert-streaming validation — September 23, 2026
 
+## Bounded read-ahead — September 24
+
+Base commit `acb1930` plus read-ahead changes. Hardware/environment remains
+Mac15,6 / M3 Pro / 12 CPU cores / 18 GiB RAM, macOS 26.1 (25B78), Swift 6.2.4
+(`swiftlang-6.2.4.1.4 clang-1700.6.4.2`), Python 3.13.15, oMLX 0.6.4,
+MLX 0.32.0, MLX-LM 0.31.3.
+
+Exact commands, all exit 0:
+
+```bash
+bash Scripts/test.sh --qwen-agents > /tmp/read-ahead-tests.log 2>&1
+bash Scripts/test.sh --expert-streaming > /tmp/read-ahead-mlx-tests.log 2>&1
+.build/qwen-agent-venv/bin/python Scripts/agent_runtime.py /tmp/read-ahead-routes.json serve --help > /tmp/read-ahead-bootstrap.log 2>&1
+git diff --check
+```
+
+Complete final test footers:
+
+```text
+----------------------------------------------------------------------
+Ran 72 tests in 0.833s
+
+OK
+```
+
+```text
+----------------------------------------------------------------------
+Ran 11 tests in 0.775s
+
+OK
+```
+
+Read-ahead tests verify one pending expert per store, a shared byte cap including
+read-copy headroom, background file reads with decoding on the caller thread,
+budget release after read/decode errors, close waiting for reads, oversized/stale
+fallback, and admission reservations. Synthetic Qwen and GLM prefill and cached
+continuation match their normal MLX paths within `atol=rtol=2e-4`. The loader hook
+wires both adaptive caches and read-ahead; simultaneous model threads share a
+staging pool. An injected compute failure verifies pending reads drain before
+file-descriptor cleanup.
+
+The bootstrap extends the prefix/adaptive fixture with a 16 MiB read-ahead pool
+and per-model staging reservations derived from the pinned expert sizes. It
+prints help without loading a model or opening a listener. Approved Metal access
+was used for the synthetic suite and bootstrap. No full checkpoint was downloaded
+or loaded, and no existing process was terminated. No model-run/community
+benchmark protocol was performed. The test durations are not throughput
+measurements; full-model SSD overlap, speed, peak RAM, and sustained harness
+workloads remain unmeasured. No Swift source was changed or rebuilt.
+
 ## Adaptive cache follow-up
 
 Validated with HEAD `40d6b1920b077c1b63630ee23890367c5fb5fd28` plus working-tree

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import threading
 
 DTYPES = {'U32': 4, 'F32': 4, 'F16': 2, 'BF16': 2, 'I32': 4, 'I64': 8}
 EXPERT = re.compile(r'^(model\.layers\.(\d+)\.mlp\.switch_mlp)\.(gate_proj|up_proj|down_proj)\.(weight|scales|biases)$')
@@ -50,6 +51,7 @@ class TensorFiles:
         self.descriptors = {}
         self.tensors = {}
         self.bytes_read = 0
+        self.read_counter_lock = threading.Lock()
         try:
             if self.directory.is_symlink():
                 raise ValueError('Model directory cannot be a symlink')
@@ -101,7 +103,8 @@ class TensorFiles:
             offset += expert * size
             shape = shape[1:]
         data = read_exact(self.descriptors[tensor.file], size, offset)
-        self.bytes_read += size
+        with self.read_counter_lock:
+            self.bytes_read += size
         return data, tensor.dtype, shape
 
     def close(self):

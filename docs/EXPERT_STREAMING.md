@@ -119,6 +119,44 @@ exclude allocator, KV, and runtime memory; counters update at inference
 boundaries. Cache growth happens on demand and does not preload unused experts.
 Full-model throughput and peak RAM with this mode remain unmeasured.
 
+## Bounded expert read-ahead
+
+Enable background reads for the next selected expert with `--expert-read-ahead`:
+
+```bash
+python3 Scripts/serve-qwen-agents.py --fleet --worker-precision 3bit \
+  --stream-experts --adaptive-expert-cache --expert-read-ahead
+```
+
+Each streamed model has at most one outstanding expert read. After loading the
+current expert, the inference thread schedules a read for the next expert
+already selected for that chunk. The worker reads ordinary file bytes while the
+current expert's Metal operations run. It performs no token routing, tensor
+creation, or GPU work. Cached experts need no read-ahead.
+
+`--expert-read-ahead-mb` sets a **shared** raw staging budget of 8, 16, or 32 MiB
+(default 16). Reservations include twice each expert's payload size to cover
+transient read-copy buffers. Completed but unconsumed reads keep their
+reservation. If the pool is full or an expert will not fit, inference uses its
+normal synchronous read; it does not grow an unbounded work queue. This pool
+covers speculative file bytes, not all model/Metal allocations.
+
+The launcher adds read-ahead staging headroom to each streamed model's admission
+estimate. Read-ahead and adaptive expert caches have separate budgets. Failure
+cleanup drains pending reads; unloading joins the worker before closing model
+file descriptors. Consumed read errors propagate instead of producing an answer
+from missing or substituted weights.
+
+`GET /health` reports `expert_read_ahead`, including the pool limit, current and
+peak reserved bytes, submitted/consumed reads, and skips caused by the budget.
+Read-ahead is off unless explicitly enabled and requires `--stream-experts`.
+It does not change checkpoint weights, routing, or prefix-cache identity.
+
+Synthetic tests verify equivalent Qwen/GLM prefill and continuation outputs,
+shared-budget behavior, concurrent model execution, and failure cleanup.
+Full-model speedup is unmeasured: overlapping SSD reads may help latency, but
+extra CPU/SSD contention can also hurt performance.
+
 ## Other models and efficiency controls
 
 The dense Qwen 27B worker cannot use routed-expert streaming: its dense layers

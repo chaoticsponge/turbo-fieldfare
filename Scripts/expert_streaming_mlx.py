@@ -36,6 +36,7 @@ class ExpertStore:
         self.lock = threading.RLock()
         self.closed = False
         self.adaptive = None
+        self.read_ahead = None
         self.profile = layout(files, config, cache_bytes)
         self.cache = LayerExpertCache(cache_bytes, self.profile['layers'])
 
@@ -44,11 +45,33 @@ class ExpertStore:
                  for projection in ('gate_proj', 'up_proj', 'down_proj')
                  for field in ('weight', 'scales', 'biases')]
         size = sum(self.files.tensors[n].size // self.files.tensors[n].shape[0] for n in names)
-        return self.cache.get((prefix, index), size,
-                              lambda: {n: tensor_array(self.files.read(n, index)) for n in names})
+        key = (prefix, index)
+        def read():
+            return {n:self.files.read(n, index) for n in names}
+        def decode(payload):
+            return {n:tensor_array(value) for n,value in payload.items()}
+        def load():
+            return (self.read_ahead.consume(key, read, decode) if self.read_ahead is not None
+                    else {n:tensor_array(self.files.read(n, index)) for n in names})
+        result = self.cache.get(key, size, load)
+        if self.read_ahead is not None and self.read_ahead.pending is not None and self.read_ahead.pending[0] == key:
+            self.read_ahead.discard()  # A cache hit made speculative bytes unnecessary.
+        return result
+
+    def prefetch(self, prefix, index):
+        if self.read_ahead is None or index in self.cache.layers[prefix].entries:
+            return
+        names = [f'{prefix}.{projection}.{field}'
+                 for projection in ('gate_proj', 'up_proj', 'down_proj')
+                 for field in ('weight', 'scales', 'biases')]
+        size = sum(self.files.tensors[n].size // self.files.tensors[n].shape[0] for n in names)
+        self.read_ahead.schedule((prefix, index), size,
+            lambda: {n:self.files.read(n, index) for n in names})
 
     def close(self):
         with self.lock:
+            if self.read_ahead is not None:
+                self.read_ahead.close()
             if self.adaptive is not None:
                 self.adaptive.unregister(self)
             self.cache.clear()
@@ -66,55 +89,62 @@ class StreamedSwitchGLU(nn.Module):
     def __call__(self, x, indices):
         # Freeze routed indices on the host. No route is dropped or approximated.
         with self.store.lock:
-            if self.store.closed:
-                raise RuntimeError('Expert files have been closed')
-            mx.eval(x, indices)
-            shape, hidden = indices.shape, x.shape[-1]
-            count, top_k = indices.size // shape[-1], shape[-1]
-            if x.size // hidden != count:
-                raise ValueError('Expert input and routed indices disagree')
-            flat_x, flat_indices = x.reshape(count, hidden), indices.reshape(count, top_k)
-            chunks = []
-            for start in range(0, count, self.chunk_rows):
-                end = min(count, start + self.chunk_rows)
-                selected = flat_indices[start:end].tolist()
-                positions = {}
-                for row, choices in enumerate(selected):
-                    for choice, expert in enumerate(choices):
-                        positions.setdefault(expert, []).append(row * top_k + choice)
-                output = mx.zeros(((end - start) * top_k, hidden), dtype=x.dtype)
-                for expert, slots in positions.items():
-                    bank = self.store.expert(self.prefix, expert)
-                    loc = mx.array(slots, dtype=mx.int32)
-                    rows = mx.array([slot // top_k for slot in slots], dtype=mx.int32)
-                    inputs = flat_x[start:end][rows]
+            try:
+                if self.store.closed:
+                    raise RuntimeError('Expert files have been closed')
+                mx.eval(x, indices)
+                shape, hidden = indices.shape, x.shape[-1]
+                count, top_k = indices.size // shape[-1], shape[-1]
+                if x.size // hidden != count:
+                    raise ValueError('Expert input and routed indices disagree')
+                flat_x, flat_indices = x.reshape(count, hidden), indices.reshape(count, top_k)
+                chunks = []
+                for start in range(0, count, self.chunk_rows):
+                    end = min(count, start + self.chunk_rows)
+                    selected = flat_indices[start:end].tolist()
+                    positions = {}
+                    for row, choices in enumerate(selected):
+                        for choice, expert in enumerate(choices):
+                            positions.setdefault(expert, []).append(row * top_k + choice)
+                    output = mx.zeros(((end - start) * top_k, hidden), dtype=x.dtype)
+                    routed = list(positions.items())
+                    for order, (expert, slots) in enumerate(routed):
+                        bank = self.store.expert(self.prefix, expert)
+                        if order + 1 < len(routed):
+                            self.store.prefetch(self.prefix, routed[order + 1][0])
+                        loc = mx.array(slots, dtype=mx.int32)
+                        rows = mx.array([slot // top_k for slot in slots], dtype=mx.int32)
+                        inputs = flat_x[start:end][rows]
 
-                    def project(name, value):
-                        key = f'{self.prefix}.{name}'
-                        global_q = self.store.config['quantization']
-                        q = global_q.get(key, global_q)
-                        return mx.quantized_matmul(value, bank[key + '.weight'],
-                            bank[key + '.scales'], bank[key + '.biases'], transpose=True,
-                            group_size=q['group_size'], bits=4, mode='affine')
+                        def project(name, value):
+                            key = f'{self.prefix}.{name}'
+                            global_q = self.store.config['quantization']
+                            q = global_q.get(key, global_q)
+                            return mx.quantized_matmul(value, bank[key + '.weight'],
+                                bank[key + '.scales'], bank[key + '.biases'], transpose=True,
+                                group_size=q['group_size'], bits=4, mode='affine')
 
-                    gate, up = project('gate_proj', inputs), project('up_proj', inputs)
-                    result = project('down_proj', swiglu(gate, up))
-                    output = output.at[loc].add(result)
-                    # Drain this graph before an eviction can release expert
-                    # buffers. Old experts cannot accumulate through lazy outputs.
-                    mx.eval(output)
-                    del bank, result, gate, up, inputs
-                chunks.append(output.reshape(end - start, top_k, hidden))
-                # Preserve oMLX's high allocator cache limit (M4 safety). Free
-                # unused staging buffers only at a synchronized boundary.
-                if self.store.adaptive is not None:
-                    self.store.adaptive.boundary(self.store)
-                _sync_and_clear_cache(mx.default_stream(mx.default_device()))
-            if not chunks:
-                return mx.zeros((*shape, hidden), dtype=x.dtype)
-            result = mx.concatenate(chunks, axis=0).reshape(*shape, hidden)
-            mx.eval(result)
-            return result
+                        gate, up = project('gate_proj', inputs), project('up_proj', inputs)
+                        result = project('down_proj', swiglu(gate, up))
+                        output = output.at[loc].add(result)
+                        # Drain this graph before an eviction can release expert
+                        # buffers. Old experts cannot accumulate through lazy outputs.
+                        mx.eval(output)
+                        del bank, result, gate, up, inputs
+                    chunks.append(output.reshape(end - start, top_k, hidden))
+                    # Preserve oMLX's high allocator cache limit (M4 safety). Free
+                    # unused staging buffers only at a synchronized boundary.
+                    if self.store.adaptive is not None:
+                        self.store.adaptive.boundary(self.store)
+                    _sync_and_clear_cache(mx.default_stream(mx.default_device()))
+                if not chunks:
+                    return mx.zeros((*shape, hidden), dtype=x.dtype)
+                result = mx.concatenate(chunks, axis=0).reshape(*shape, hidden)
+                mx.eval(result)
+                return result
+            finally:
+                if self.store.read_ahead is not None:
+                    self.store.read_ahead.discard()
 
 
 def load_streamed_model(directory, cache_bytes=256 * 1024**2, chunk_rows=16):
@@ -158,7 +188,7 @@ def load_streamed_model(directory, cache_bytes=256 * 1024**2, chunk_rows=16):
         raise
 
 
-def install_loader(streaming, adaptive=None):
+def install_loader(streaming, adaptive=None, read_ahead_pool=None):
     """Intercept only explicitly configured local models; all others delegate.
 
     No installed package is edited. The hook lives only for this server process.
@@ -178,6 +208,9 @@ def install_loader(streaming, adaptive=None):
             tokenizer_config=kwargs.get('tokenizer_config'), trust_remote_code=False)
         model, config, store = load_streamed_model(path_or_repo, options['cache_bytes'], options['chunk_rows'])
         try:
+            if read_ahead_pool is not None and options.get('read_ahead'):
+                from expert_read_ahead import ExpertReadAhead
+                store.read_ahead = ExpertReadAhead(read_ahead_pool)
             if adaptive is not None and options.get('adaptive'):
                 limits = options['adaptive']
                 with store.lock:

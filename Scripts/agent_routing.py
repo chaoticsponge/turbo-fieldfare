@@ -203,10 +203,11 @@ async def reply(send, status, body, headers=()):
 
 
 class AgentRouter:
-    def __init__(self, app, routes, switch, concurrency=2, budget_bytes=40.8 * 1024**3, cache_status=None, prefix_status=None):
+    def __init__(self, app, routes, switch, concurrency=2, budget_bytes=40.8 * 1024**3, cache_status=None, prefix_status=None, read_ahead_status=None):
         self.app, self.routes = app, routes
         self.cache_status = cache_status
         self.prefix_status = prefix_status
+        self.read_ahead_status = read_ahead_status
         self.gate = ModelGate(switch, concurrency, budget_bytes=budget_bytes,
                              weights={entry['model']: weight_reservation(entry)
                                       for entry in routes.values()})
@@ -219,6 +220,7 @@ class AgentRouter:
         path, method = scope['path'], scope['method']
         if method == 'GET' and path == '/health':
             return await reply(send, 200, {'status': 'ok', 'routing': 'prompt-rules', 'roles': list(self.routes),
+                'expert_read_ahead': self.read_ahead_status() if self.read_ahead_status else None,
                 'prefix_cache': self.prefix_status() if self.prefix_status else {'enabled': False},
                 'adaptive_expert_cache': self.cache_status() if self.cache_status else None,
                 'admission': {'mode': 'token-aware', 'active_requests': self.gate.active,
