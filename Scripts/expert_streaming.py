@@ -216,6 +216,17 @@ class ExpertCache:
             self.bytes += size
         return value
 
+    def resize(self, budget):
+        if type(budget) is not int or budget < 0:
+            raise ValueError('Cache budget must be a nonnegative integer')
+        self.budget = budget
+        while self.entries and self.bytes > budget:
+            victim = (min(self.entries, key=lambda k: self.frequency[k])
+                      if self.policy == 'lfu' else next(iter(self.entries)))
+            size, _ = self.entries.pop(victim)
+            self.bytes -= size
+            self.evictions += 1
+
     def clear(self):
         self.entries.clear()
         self.frequency.clear()
@@ -245,6 +256,14 @@ class LayerExpertCache:
 
     def get(self, key, size, loader):
         return self.layers[key[0]].get(key[1], size, loader)
+
+    def resize(self, budget):
+        if type(budget) is not int or budget < 0:
+            raise ValueError('Cache budget must be a nonnegative integer')
+        self.budget = budget
+        per_layer, remainder = divmod(budget, len(self.layers))
+        for i, cache in enumerate(self.layers.values()):
+            cache.resize(per_layer + (i < remainder))
 
     def clear(self):
         for cache in self.layers.values(): cache.clear()

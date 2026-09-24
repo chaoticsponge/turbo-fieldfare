@@ -1,13 +1,18 @@
 """Model-free prompt routing with bounded, memory-aware concurrent admission."""
 import asyncio
 from contextlib import suppress
+from contextvars import ContextVar
 from collections import deque
 import json
 import re
 from agent_models import weight_reservation
+from agent_admission import estimate_session
 
 CHAT_ROLES = {'worker', 'coder', 'research', 'extract'}
 PATH_ROLES = {'/v1/embeddings': 'embed', '/v1/rerank': 'rerank'}
+# Request-local output reservation consumed by the engine token-count validator.
+OUTPUT_RESERVATION = ContextVar('agent_output_reservation', default=0)
+TOKEN_RESERVATION = ContextVar('agent_token_reservation', default=None)
 MAX_BODY = 16 * 1024 * 1024
 
 
@@ -85,6 +90,17 @@ def resolve(path, body, routes):
             raise RouteError('messages must be a nonempty array')
         if has_images(messages) and config['kind'] != 'vlm':
             raise RouteError('This specialist cannot accept images; use worker or auto')
+        limit = config.get('max_context_window')
+        if limit is not None:
+            supplied = [body[k] for k in ('max_tokens', 'max_completion_tokens') if body.get(k) is not None]
+            if any(type(v) is not int or v <= 0 for v in supplied):
+                raise RouteError('Output token budget must be a positive integer')
+            if len(set(supplied)) > 1:
+                raise RouteError('max_tokens and max_completion_tokens must agree')
+            output = supplied[0] if supplied else min(2048 if role == 'extract' else 4096, limit // 2)
+            if output >= limit:
+                raise RouteError(f"Role '{role}' has a {limit}-token context budget; output must leave room for the prompt")
+            body['max_tokens'] = output
         for key in ('temperature', 'top_p', 'top_k'):
             body.setdefault(key, config[key])
         if role == 'extract':
@@ -130,32 +146,47 @@ class ModelGate:
         self.weights = weights or {}
         self.budget = budget_bytes
         self.session_bytes = session_bytes
+        self.active_session_bytes = 0
+        self.leases = {}
 
-    def fits(self, model):
+    def fits(self, model, session_bytes=None):
+        size = self.session_bytes if session_bytes is None else session_bytes
         weights = sum(self.weights.get(m, 0) for m in {*self.models, model})
-        return weights + self.session_bytes * (self.active + 1) <= self.budget
+        return weights + self.active_session_bytes + size <= self.budget
 
-    async def acquire(self, model):
+    async def acquire(self, model, session_bytes=None):
+        size = self.session_bytes if session_bytes is None else session_bytes
+        if type(size) is not int or size <= 0:
+            raise RouteError('Invalid session memory reservation')
         ticket = object()
         async with self.condition:
-            if self.weights.get(model, 0) + self.session_bytes > self.budget:
-                raise RouteError('Model cannot fit the admission budget', 503)
+            if self.weights.get(model, 0) + size > self.budget:
+                raise RouteError('Model and requested context cannot fit the admission budget; reduce history or output tokens', 503)
             if len(self.waiters) >= self.max_waiters:
                 raise RouteError('Agent queue is full; retry later', 429)
             self.waiters.append(ticket)
             try:
                 await self.condition.wait_for(lambda:
                     self.waiters[0] is ticket and self.active < self.concurrency
-                    and self.fits(model))
-                await self.switch(model, {*self.models, model}, self.active + 1)
+                    and self.fits(model, size))
+                await self.switch(model, {*self.models, model}, self.active_session_bytes + size)
                 self.active += 1
+                self.active_session_bytes += size
+                self.leases[ticket] = (model, size)
                 self.models[model] = self.models.get(model, 0) + 1
+                return ticket
             finally:
                 self.waiters.remove(ticket)
                 self.condition.notify_all()
 
-    async def release(self, model):
+    async def release(self, lease):
         async with self.condition:
+            # Legacy callers releasing a model used equal fixed reservations.
+            # Request paths always release the exact lease, including out of order.
+            if isinstance(lease, str):
+                lease = next(key for key, (model, _) in self.leases.items() if model == lease)
+            model, size = self.leases.pop(lease)
+            self.active_session_bytes -= size
             self.active -= 1
             self.models[model] -= 1
             if not self.models[model]:
@@ -172,8 +203,10 @@ async def reply(send, status, body, headers=()):
 
 
 class AgentRouter:
-    def __init__(self, app, routes, switch, concurrency=2, budget_bytes=40.8 * 1024**3):
+    def __init__(self, app, routes, switch, concurrency=2, budget_bytes=40.8 * 1024**3, cache_status=None, prefix_status=None):
         self.app, self.routes = app, routes
+        self.cache_status = cache_status
+        self.prefix_status = prefix_status
         self.gate = ModelGate(switch, concurrency, budget_bytes=budget_bytes,
                              weights={entry['model']: weight_reservation(entry)
                                       for entry in routes.values()})
@@ -186,12 +219,21 @@ class AgentRouter:
         path, method = scope['path'], scope['method']
         if method == 'GET' and path == '/health':
             return await reply(send, 200, {'status': 'ok', 'routing': 'prompt-rules', 'roles': list(self.routes),
+                'prefix_cache': self.prefix_status() if self.prefix_status else {'enabled': False},
+                'adaptive_expert_cache': self.cache_status() if self.cache_status else None,
+                'admission': {'mode': 'token-aware', 'active_requests': self.gate.active,
+                    'active_session_bytes': self.gate.active_session_bytes,
+                    'models': {role: entry.get('cache_profile', {'layout': 'fallback'})
+                               for role, entry in self.routes.items()}},
+                'context_budgets': {role: entry['max_context_window'] for role, entry in self.routes.items()
+                                    if 'max_context_window' in entry},
                 'expert_streaming': {role: {'cache_bytes': entry['expert_streaming']['cache_bytes'],
                     'planned_weight_bytes': entry['resident_weight_bytes']}
                     for role, entry in self.routes.items() if 'expert_streaming' in entry}})
         if method == 'GET' and path == '/v1/models':
             data = [{'id': r, 'object': 'model', 'owned_by': 'local',
-                     'created': 0, 'underlying_model': c['model']} for r, c in self.routes.items()]
+                     'created': 0, 'underlying_model': c['model'],
+                     **({'max_context_window': c['max_context_window']} if 'max_context_window' in c else {})} for r, c in self.routes.items()]
             data.insert(0, {'id': 'auto', 'object': 'model', 'created': 0, 'owned_by': 'local'})
             return await reply(send, 200, {'object': 'list', 'data': data})
         # No alternate inference/admin routes can bypass the shared memory gate.
@@ -213,6 +255,7 @@ class AgentRouter:
             except (ValueError, UnicodeError):
                 raise RouteError('Invalid JSON')
             role, body = resolve(path, body, self.routes)
+            estimate = estimate_session(path, body, self.routes[role])
             encoded = json.dumps(body).encode()
             scope = {**scope, 'headers': [(k, v) for k, v in scope.get('headers', [])
                                          if k.lower() not in (b'content-length', b'transfer-encoding')]
@@ -229,14 +272,17 @@ class AgentRouter:
             async def report(message):
                 if message['type'] == 'http.response.start':
                     message = {**message, 'headers': [*message.get('headers', []),
-                        (b'x-agent-role', role.encode()), (b'x-agent-model', body['model'].encode())]}
+                        (b'x-agent-role', role.encode()), (b'x-agent-model', body['model'].encode()),
+                        (b'x-agent-session-bytes', str(estimate.session_bytes).encode()),
+                        (b'x-agent-token-estimate', str(estimate.total_tokens or 0).encode()),
+                        (b'x-agent-estimate-method', estimate.method.encode())]}
                 await send(message)
 
             async def disconnect():
                 while (await receive())['type'] != 'http.disconnect':
                     pass
 
-            admission = asyncio.create_task(self.gate.acquire(body['model']))
+            admission = asyncio.create_task(self.gate.acquire(body['model'], estimate.session_bytes))
             gone = asyncio.create_task(disconnect())
             try:
                 done, _ = await asyncio.wait([admission, gone], timeout=300,
@@ -249,7 +295,14 @@ class AgentRouter:
                 gone.cancel()
                 with suppress(asyncio.CancelledError):
                     await gone
-                await self.app(scope, replay, report)
+                reservation = OUTPUT_RESERVATION.set(body.get('max_tokens', 0)
+                    if path == '/v1/chat/completions' and 'max_context_window' in self.routes[role] else 0)
+                token_reservation = TOKEN_RESERVATION.set(estimate.total_tokens)
+                try:
+                    await self.app(scope, replay, report)
+                finally:
+                    TOKEN_RESERVATION.reset(token_reservation)
+                    OUTPUT_RESERVATION.reset(reservation)
             finally:
                 gone.cancel()
                 with suppress(asyncio.CancelledError):
@@ -259,6 +312,6 @@ class AgentRouter:
                 with suppress(asyncio.CancelledError, RouteError):
                     await admission
                 if not admission.cancelled() and admission.exception() is None:
-                    await self.gate.release(body['model'])
+                    await self.gate.release(admission.result())
         except RouteError as error:
             await reply(send, error.status, {'error': {'message': str(error), 'type': 'routing_error'}})

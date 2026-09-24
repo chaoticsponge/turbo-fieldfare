@@ -4,7 +4,9 @@ model:
   default: auto
   provider: custom
   base_url: http://127.0.0.1:8080/v1
-  context_length: 65536
+  # Conservative auto limit: any chat role may be selected.
+  # Explicit specialists can use their advertised /v1/models budget.
+  context_length: 8192
 
 fallback_providers: []
 fallback_model: null

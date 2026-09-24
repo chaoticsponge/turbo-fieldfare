@@ -72,6 +72,30 @@ class StreamedModelTests(unittest.TestCase):
                 self.assertFalse(any('.switch_mlp.' in key for key,_ in tree_flatten(streamed.parameters())))
                 store.close()
 
+    def test_adaptive_growth_and_shrink_preserve_both_models_outputs(self):
+        from adaptive_expert_cache import AdaptiveExpertCaches
+        for kind in ('qwen3_moe', 'glm4_moe_lite'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as folder:
+                directory=Path(folder)
+                reference=create_checkpoint(directory,tiny_config(kind))
+                model,_,store=load_streamed_model(directory,cache_bytes=20000,chunk_rows=1)
+                now=[0];memory=[(1000000,8000000,10000000)]
+                controller=AdaptiveExpertCaches(100000,8000000,lambda:memory[0],
+                    clock=lambda:now[0],interval=2,step_bytes=20000)
+                controller.register(store,kind,10000,100000)
+                store.adaptive=controller
+                tokens=mx.array([[i%100 for i in range(64)]])
+                expected=reference(tokens);mx.eval(expected)
+                for moment,budget in ((0,20000),(3,40000),(6,20000)):
+                    now[0]=moment
+                    if moment==6:memory[0]=(7500000,500000,10000000)
+                    result=model(tokens);mx.eval(result)
+                    self.assertTrue(mx.allclose(expected,result,atol=2e-4,rtol=2e-4).item())
+                    self.assertEqual(store.cache.budget,budget)
+                    self.assertLessEqual(store.cache.bytes,budget)
+                store.close()
+                self.assertFalse(controller.snapshot()['models'])
+
     def test_batched_rows_duplicate_routes_and_eviction_match(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
@@ -123,11 +147,16 @@ class StreamedModelTests(unittest.TestCase):
             original=model_loading.lm_load_compat
             try:
                 with patch.object(model_loading,'lm_load_compat',return_value=('normal','tokenizer')) as fallback:
-                    install_loader({str(directory):{'cache_bytes':40000,'chunk_rows':2}})
+                    from adaptive_expert_cache import AdaptiveExpertCaches
+                    adaptive=AdaptiveExpertCaches(100000,8000000,lambda:(1000000,8000000,10000000))
+                    install_loader({str(directory):{'cache_bytes':40000,'chunk_rows':2,
+                        'adaptive':{'min_bytes':10000,'max_bytes':80000}}},adaptive)
                     with patch('expert_streaming_mlx.load_tokenizer',return_value='local-tokenizer'):
                         model,tokenizer=model_loading.lm_load_compat(str(directory),tokenizer_config={})
                         self.assertEqual(tokenizer,'local-tokenizer')
                         self.assertIsInstance(model.layers[0].mlp.switch_mlp,StreamedSwitchGLU)
+                        self.assertIs(model.layers[0].mlp.switch_mlp.store.adaptive,adaptive)
+                        self.assertEqual(adaptive.snapshot()['allocated_budget_bytes'],40000)
                         self.assertEqual(model_loading.lm_load_compat('/not/allowlisted'),('normal','tokenizer'))
                         self.assertEqual(fallback.call_count,1)
                         (directory/'model.safetensors').write_bytes(b'broken')
@@ -147,6 +176,11 @@ class StreamedModelTests(unittest.TestCase):
                 model,_,store=load_streamed_model(directory,cache_bytes=40000,chunk_rows=2)
                 materialize_lazy_state(model)
                 models.append((model,store))
+            from adaptive_expert_cache import AdaptiveExpertCaches
+            adaptive=AdaptiveExpertCaches(100000,8000000,lambda:(7500000,500000,10000000), interval=.0001)
+            for i,(_,store) in enumerate(models):
+                adaptive.register(store,str(i),10000,80000)
+                store.adaptive=adaptive
             def generate(item):
                 model,_=item
                 stream=mx.new_thread_local_stream(mx.default_device())

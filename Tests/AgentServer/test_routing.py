@@ -79,7 +79,7 @@ class GateTests(unittest.IsolatedAsyncioTestCase):
         await gate.acquire('coder')
         await asyncio.wait_for(gate.acquire('research'), 1)
         self.assertEqual(gate.active, 2)
-        self.assertEqual(admitted[-1], ('research', {'coder', 'research'}, 2))
+        self.assertEqual(admitted[-1], ('research', {'coder', 'research'}, 6))
         await gate.release('coder')
         await gate.release('research')
 
@@ -231,7 +231,7 @@ class ConcurrentBudgetTests(unittest.IsolatedAsyncioTestCase):
                 return True
         pool = Pool()
         gib = 1024**3
-        await reclaim_idle(pool, {'coder', 'research'}, 2,
+        await reclaim_idle(pool, {'coder', 'research'}, 6*gib,
                            {'worker': 28*gib, 'coder': 16*gib, 'research': 16*gib}, 41*gib)
         self.assertEqual(pool.evicted, ['worker'])
         self.assertIn('coder', pool.loaded)

@@ -73,8 +73,9 @@ Ctrl-C stops its own server. No second inference process or remote proxy is used
 
 - Two active API requests by default, across **the same or different models**.
   `--concurrency 3` or `4` is supported, subject to the same memory admission.
-- Shared weights are counted once per active model. Each active request reserves
-  3 GiB of session headroom; weight reservations include a 5% margin.
+- Shared weights are counted once per active model, with a 5% margin. Chat
+  requests reserve session memory based on estimated prompt/output tokens and
+  the model's cache layout. Retrieval and unknown layouts retain 3 GiB headroom.
 - On a 64 GiB machine, admission uses 40.8 GiB, the soft watermark of the existing
   48 GiB oMLX guard. The guard also monitors actual runtime memory and can defer
   or abort work. Reservations are estimates, not a guaranteed maximum.
@@ -84,21 +85,34 @@ Ctrl-C stops its own server. No second inference process or remote proxy is used
 - A FIFO queue allows 16 waiting requests and waits at most 300 seconds. Full
   queues return 429; admission timeouts return 503. Disconnects remove queued
   requests. A streaming request retains its reservation through its final chunk.
-- Coder + research, or the 3-bit worker + either specialist, fit the admission
-  estimate on 64 GiB. An 8-bit worker + coder does not and therefore queues.
-  These are arithmetic admission checks, not measured peak-memory results.
+- Short coder + research requests, or the 3-bit worker + either specialist,
+  can overlap on 64 GiB. Longer contexts may queue. An 8-bit worker + resident
+  coder exceeds the weight budget even before sessions. These are arithmetic
+  admission checks, not measured peak-memory results.
 
 All six roles are callable, but **all six models need not be resident at once**.
 Their aggregate weights plus KV state leave too little room to guarantee that
 on 64 GB. The scheduler permits useful overlap without requiring all weights in
 RAM. GPU time and bandwidth are still shared, so overlap does not imply twice
 the throughput. Long contexts may hit the actual-memory guard before the nominal
-65,536-token API context cap. Start with two active calls and measure real tasks.
+role-specific context cap. Start with two active calls and measure real tasks.
 
-Optional `--prefix-cache-gb 4` enables bounded SSD prefix reuse, with no separate
-hot RAM cache. The cache directory is tied to the selected revision set, and
-oMLX separates model cache entries. Loading an evicted model still has a cost.
-Idle models are eligible for automatic unloading after five minutes.
+Fleet mode enables 4 GiB of shared SSD prefix reuse by default, with no separate
+hot RAM cache. `--prefix-cache-gb 0` disables it. Compatible agents using the same
+model reuse matching prefixes; models remain isolated. See
+[shared prefix reuse](SHARED_PREFIX_REUSE.md) for client prompt structure,
+persistence, and hit statistics. Loading an evicted model still has a cost.
+Idle-unload eligibility is 120 seconds for the worker, 180 for extraction,
+300 for coder/research, and 600 for embedding/reranking.
+
+Optional `--stream-experts` streams the coder/research expert banks from SSD,
+with a shared bounded cache per model and lower estimated weight reservations.
+The resident-weight admission examples above describe the default mode.
+See [expert streaming](EXPERT_STREAMING.md) for launch commands, memory estimates,
+and the unmeasured full-model performance tradeoff.
+Add `--adaptive-expert-cache` to grow/shrink those caches within a shared pool.
+Adaptive mode reserves its maximum cache allowance during admission; see the
+same guide for limits, pressure thresholds, and live cache statistics.
 
 ## Routing behavior
 
@@ -120,11 +134,100 @@ overrides routing and is preferable for a persistent specialist subagent.
 
 Tool definitions, call IDs, history, and streaming deltas pass through. Defaults
 are role-specific, and explicit caller sampling settings win. Extraction disables
-thinking by default. Responses include `X-Agent-Role` and `X-Agent-Model` headers;
+thinking by default and caps output at 2,048 tokens unless the caller supplies
+an output budget. Responses include `X-Agent-Role` and `X-Agent-Model` headers;
 the response body names the actual model. No prompt log is added by the router.
 Missing models and unsupported images fail explicitly. Hermes remains responsible
 for tool execution, approvals, browsing, sending email, and creating subagents.
 Routing itself does not perform those actions.
+
+## Role context budgets
+
+Fleet mode defaults to the following token limits:
+
+| Role | Context budget |
+| --- | ---: |
+| worker | 16,384 |
+| coder | 32,768 |
+| research | 65,536 |
+| extract | 8,192 |
+| embed / rerank | 8,192 each (engine input context) |
+
+For chat, the budget includes the rendered prompt (history, instructions, and
+tool definitions) **plus reserved output tokens**. The engine's tokenizer counts
+the prompt. A request exceeding its selected role's budget returns HTTP 400;
+history is not silently truncated or rerouted to another model. By default,
+extraction reserves 2,048 output tokens and other chat roles reserve 4,096, reduced
+to half the context budget when necessary. Explicit `max_tokens` or
+`max_completion_tokens` overrides the output reservation but must leave room for
+the prompt. If both are supplied, they must agree.
+
+`--context` is the fleet-wide ceiling. Repeat `--role-context ROLE=TOKENS` to
+override individual roles, using 4096, 8192, 16384, 32768, or 65536:
+
+```bash
+python3 Scripts/serve-qwen-agents.py --fleet --worker-precision 3bit \
+  --context 32768 --role-context worker=8192 --role-context coder=16384
+```
+
+Here research is also capped at 32,768. Overrides above the global ceiling,
+duplicate overrides, or overrides for disabled roles fail before launch.
+The same budgets are written to engine settings and router discovery.
+`GET /health` reports `context_budgets`; `/v1/models` reports
+`max_context_window` for each concrete role. `auto` has no single fixed limit:
+the chosen role determines it.
+
+Client examples advertise a conservative 8,192-token context for `auto` so it
+can select any default chat role. Use an explicit specialist and its matching
+client context setting for longer tasks. Update client limits if you change
+server budgets. Embedding/reranking keep their existing character/batch bounds
+in addition to the engine input-context setting.
+
+Lower limits bound growth; they do not preallocate memory or reduce RAM for an
+already-short request. Single-model mode keeps its existing `--context` behavior.
+
+## Token-aware admission
+
+Fleet mode derives a cache profile from each verified local `config.json` during
+launch. It accounts for Qwen GQA K/V arrays, Qwen hybrid attention plus recurrent
+state, or GLM's latent KV and rotary-position arrays. Weight quantization is not
+assumed to quantize the conversation cache. GLM also reserves workspace for its
+explicit positional attention-score matrix.
+
+Before admitting a chat request, the router estimates prompt tokens from UTF-8
+bytes of the full history, tools, and template options, with template headroom.
+This is a conservative heuristic, **not an exact tokenizer count**. It includes
+the normalized output reservation and caps the planned total at the role context
+limit. Image requests reserve the entire role context plus extra vision
+workspace. Prefix-cache hits receive no speculative memory discount.
+
+Session reservations include a 1 GiB workspace floor, 25% cache/state headroom,
+cache allocation rounded to 256-token blocks, and prefill workspace for up to
+the pinned engine's 2,048-token step size. Image requests add 1 GiB. These margins
+are estimates, not measured allocation maxima. Embedding/reranking requests and
+unrecognized or missing cache profiles retain the previous fixed 3 GiB estimate.
+
+The engine still validates the actual rendered prompt count before generation.
+If a template expands beyond the admission token estimate, the request fails
+with HTTP 400 rather than growing its reservation while other requests run.
+Simplify the prompt or tool template in that case. Prompts exceeding the role
+budget also retain the existing HTTP 400 behavior. A request whose weights plus
+session estimate cannot fit even by itself returns HTTP 503; reducing history or
+output tokens can allow admission.
+
+Each admitted request owns a reservation until its response finishes or fails.
+Cancellation removes queued requests without reserving memory. Shared weights
+are counted once, but each concurrent conversation reserves its own state.
+Idle-model eviction uses the same sum of session bytes as admission. FIFO order,
+queue bounds, the configured concurrency limit, and oMLX's actual-memory guard
+remain in force; shorter requests do not jump ahead of an earlier queued request.
+
+Inspect `/health` for active session bytes and each model's cache profile.
+Responses include `X-Agent-Session-Bytes`, `X-Agent-Token-Estimate`, and
+`X-Agent-Estimate-Method`; a token estimate of zero denotes a fixed reservation.
+These report planning values, not process RAM measurements. Restart the server
+through the launcher to generate the new profiles; old route files use fallback
+reservations until regenerated.
 
 ## Hermes connection
 
@@ -132,7 +235,7 @@ There is no Hermes configuration on this development Mac. On the target Mac,
 merge [the local inference settings](examples/hermes-local-fleet.yaml) into your
 Hermes configuration, preserving tool permissions and account settings. Use the
 same machine because the endpoint is loopback-only. The main model is `auto`,
-provider `custom`, endpoint `http://127.0.0.1:8080/v1`, context `65536`. A local
+provider `custom`, endpoint `http://127.0.0.1:8080/v1`, conservative auto context `8192`. A local
 key placeholder can be entered in `hermes model` if requested.
 
 The example clears primary/delegation cloud fallbacks and sets common auxiliary

@@ -2,6 +2,21 @@
 import json
 from pathlib import Path
 
+CONTEXT_DEFAULTS = {'worker': 16384, 'coder': 32768, 'research': 65536,
+                    'extract': 8192, 'embed': 8192, 'rerank': 8192}
+CONTEXT_CHOICES = (4096, 8192, 16384, 32768, 65536)
+
+
+def context_budgets(roles, ceiling=65536, overrides=None):
+    overrides = overrides or {}
+    for role, value in overrides.items():
+        if role not in roles:
+            raise ValueError(f'Context override role is not enabled: {role}')
+        if value not in CONTEXT_CHOICES or value > ceiling:
+            raise ValueError(f'Context for {role} must be a supported size at or below --context {ceiling}')
+    return {role: overrides.get(role, min(CONTEXT_DEFAULTS[role], ceiling)) for role in roles}
+
+
 ROOT = Path(__file__).resolve().parent.parent
 RESOURCES = ROOT / 'Sources/TurboFieldfareApp/Core/Resources'
 ROLES = {

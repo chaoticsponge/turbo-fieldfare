@@ -45,6 +45,11 @@ Optional concurrency override:
 python3 Scripts/serve-qwen-agents.py --concurrency 3 --context 65536
 ```
 
+For multiple specialist models, prompt routing, and optional SSD expert streaming
+for Qwen3-Coder/GLM, follow the [local fleet guide](docs/LOCAL_AGENT_FLEET.md)
+and [expert-streaming guide](docs/EXPERT_STREAMING.md). Streaming shares a bounded
+expert cache across agents; full-model speed and peak RAM remain unmeasured.
+
 ### 2) Verify the server is live
 
 ```bash

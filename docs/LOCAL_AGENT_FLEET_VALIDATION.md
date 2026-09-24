@@ -1,5 +1,120 @@
 # Local agent fleet validation — September 23, 2026
 
+## Shared prefix reuse (completed September 24)
+
+Same M3 Pro / 18 GiB, macOS 26.1, Swift 6.2.4 environment and base HEAD
+`40d6b1920b077c1b63630ee23890367c5fb5fd28` plus working-tree changes.
+Commands, all exit 0:
+
+```bash
+bash Scripts/test.sh --qwen-agents > /tmp/prefix-reuse-tests.log 2>&1
+bash Scripts/test.sh --expert-streaming > /tmp/prefix-reuse-mlx-tests.log 2>&1
+.build/qwen-agent-venv/bin/python Scripts/agent_runtime.py /tmp/prefix-reuse-routes.json serve --help > /tmp/prefix-reuse-bootstrap.log 2>&1
+git diff --check
+```
+
+Complete test footers:
+
+```text
+----------------------------------------------------------------------
+Ran 67 tests in 0.702s
+
+OK
+```
+
+```text
+----------------------------------------------------------------------
+Ran 9 tests in 0.830s
+
+OK
+```
+
+Coverage includes fleet defaults/opt-out, parsed engine settings, compatible
+namespace stability and invalidation, and loaded/unavailable cache statistics.
+The installed engine's block manager reuses the same prefix blocks across two
+threads and rejects mismatched token/model/multimodal identities. Its real SSD
+cache stores tiny Qwen and GLM KV states, closes, reopens, and restores them;
+continuation logits match within `atol=rtol=2e-4`. These are synthetic fixtures,
+not full-model or harness benchmarks.
+
+The bootstrap routes extend the adaptive-cache fixture with enabled SSD prefix
+reuse and a namespace produced from local runtime distribution metadata. It
+prints help only. Metal access was approved for the synthetic suite/bootstrap.
+No full model was downloaded, no listener or model process was started, and no
+existing process was terminated. No model-run/community benchmark protocol was
+performed; full-model cache hit rate, throughput, and RAM savings remain unmeasured.
+
+## Token-aware admission (follow-up)
+
+Same M3 Pro / 18 GiB, macOS 26.1, Swift 6.2.4 environment and HEAD
+`40d6b1920b077c1b63630ee23890367c5fb5fd28` plus working-tree changes.
+Exact commands, all exit 0:
+
+```bash
+bash Scripts/test.sh --qwen-agents > /tmp/token-admission-tests.log 2>&1
+.build/qwen-agent-venv/bin/python Scripts/agent_runtime.py /tmp/expert-streaming-routes.json serve --help > /tmp/token-admission-bootstrap.log 2>&1
+python3 Scripts/serve-qwen-agents.py --help > /tmp/token-admission-help.log
+git diff --check
+```
+
+Complete test footer:
+
+```text
+----------------------------------------------------------------------
+Ran 55 tests in 0.319s
+
+OK
+```
+
+New tests cover GQA/hybrid/latent cache arithmetic, GLM attention workspace,
+prompt/output growth, tools and Unicode history, image context reservations,
+fallback and retrieval headroom, local configuration profile generation,
+actual-count rejection when a template exceeds its estimated reservation,
+variable-size concurrent leases, out-of-order release, queued cancellation,
+oversized requests, idle eviction using session bytes, SSE lifetime, and failure
+cleanup. The existing concurrent-routing tests also pass with the updated
+callback carrying total reserved session bytes instead of request count.
+
+The server bootstrap used approved Metal access, printed help, and loaded no
+weights or listener. Its old temporary routes also verify backward-compatible
+fixed-reservation fallback. No model process was started or terminated, and no
+checkpoint was downloaded. No inference benchmark or model-run protocol was
+performed. Cache estimates were checked against the pinned MLX implementation;
+workspace margins and actual full-model peak RAM remain unmeasured. This work
+does not change Swift code or claim a measured concurrency/speed improvement.
+
+## Role-specific context budgets (follow-up)
+
+Validated on the same M3 Pro / 18 GiB, macOS 26.1, Swift 6.2.4 environment
+described below, with HEAD `40d6b1920b077c1b63630ee23890367c5fb5fd28` plus
+working-tree changes. Exact commands, all exit 0:
+
+```bash
+bash Scripts/test.sh --qwen-agents > /tmp/role-context-tests.log 2>&1
+.build/qwen-agent-venv/bin/python Scripts/agent_runtime.py /tmp/expert-streaming-routes.json serve --help > /tmp/role-context-bootstrap.log 2>&1
+git diff --check
+```
+
+Complete test footer:
+
+```text
+----------------------------------------------------------------------
+Ran 45 tests in 0.294s
+
+OK
+```
+
+New coverage verifies role defaults, the global ceiling, explicit overrides,
+invalid CLI arguments before preflight, matching routes and installed-engine
+settings, output-token aliases, prompt-plus-output boundary rejection, and
+concurrent request-local reservation isolation. Discovery advertises effective
+limits. The engine validator test supplies synthetic token counts; it does not
+load a tokenizer or a model. The bootstrap uses the temporary routes described
+in [expert-streaming validation](EXPERT_STREAMING_VALIDATION.md), installs both
+runtime hooks, and prints help without starting a listener. Approved Metal
+access was used for this import check. No full-model inference or benchmark was
+run; there are no measured RAM savings or additional model-run protocol results.
+
 Base commit `4c6db1e698ea861609109d4bc517410ff302af46`, with preexisting
 uncommitted work and this implementation. Machine: Mac15,6 / M3 Pro / 12 CPU
 cores / 18 GiB RAM. macOS 26.1 (25B78), Apple Swift 6.2.4

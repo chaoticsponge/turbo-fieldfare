@@ -35,6 +35,7 @@ class ExpertStore:
         self.files, self.config = files, config
         self.lock = threading.RLock()
         self.closed = False
+        self.adaptive = None
         self.profile = layout(files, config, cache_bytes)
         self.cache = LayerExpertCache(cache_bytes, self.profile['layers'])
 
@@ -48,6 +49,8 @@ class ExpertStore:
 
     def close(self):
         with self.lock:
+            if self.adaptive is not None:
+                self.adaptive.unregister(self)
             self.cache.clear()
             self.files.close()
             self.closed = True
@@ -104,6 +107,8 @@ class StreamedSwitchGLU(nn.Module):
                 chunks.append(output.reshape(end - start, top_k, hidden))
                 # Preserve oMLX's high allocator cache limit (M4 safety). Free
                 # unused staging buffers only at a synchronized boundary.
+                if self.store.adaptive is not None:
+                    self.store.adaptive.boundary(self.store)
                 _sync_and_clear_cache(mx.default_stream(mx.default_device()))
             if not chunks:
                 return mx.zeros((*shape, hidden), dtype=x.dtype)
@@ -153,7 +158,7 @@ def load_streamed_model(directory, cache_bytes=256 * 1024**2, chunk_rows=16):
         raise
 
 
-def install_loader(streaming):
+def install_loader(streaming, adaptive=None):
     """Intercept only explicitly configured local models; all others delegate.
 
     No installed package is edited. The hook lives only for this server process.
@@ -173,6 +178,11 @@ def install_loader(streaming):
             tokenizer_config=kwargs.get('tokenizer_config'), trust_remote_code=False)
         model, config, store = load_streamed_model(path_or_repo, options['cache_bytes'], options['chunk_rows'])
         try:
+            if adaptive is not None and options.get('adaptive'):
+                limits = options['adaptive']
+                with store.lock:
+                    adaptive.register(store, Path(path_or_repo).name, limits['min_bytes'], limits['max_bytes'])
+                    store.adaptive = adaptive
             tokenizer_config = dict(kwargs.get('tokenizer_config') or {})
             tokenizer_config['trust_remote_code'] = False
             tokenizer = load_tokenizer(Path(path_or_repo), tokenizer_config,
@@ -184,3 +194,11 @@ def install_loader(streaming):
 
     model_loading.lm_load_compat = load
     return original
+
+
+def sample_memory():
+    """OS availability plus the larger of RSS and Metal active/cached bytes."""
+    import psutil
+    host = psutil.virtual_memory()
+    used = max(psutil.Process().memory_info().rss, mx.get_active_memory() + mx.get_cache_memory())
+    return used, host.available, host.total

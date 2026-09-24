@@ -21,7 +21,7 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 65536,
+            "contextWindow": 8192,
             "maxTokens": 4096
           },
           {
@@ -38,7 +38,7 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 65536,
+            "contextWindow": 16384,
             "maxTokens": 4096
           },
           {
@@ -54,7 +54,7 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 65536,
+            "contextWindow": 32768,
             "maxTokens": 4096
           },
           {
@@ -87,8 +87,8 @@
               "cacheRead": 0,
               "cacheWrite": 0
             },
-            "contextWindow": 65536,
-            "maxTokens": 4096
+            "contextWindow": 8192,
+            "maxTokens": 2048
           }
         ]
       }

@@ -99,8 +99,9 @@ SSD prefix caching to let oMLX reuse matching prior prompt state:
 python3 Scripts/serve-qwen-agents.py --prefix-cache-gb 4
 ```
 
-Choose 2, 4, 8, or 16 GiB, or 0 (default) to disable this cache. The cache lives
-under `.build/qwen-agent-server/prefix-cache/<model-revision>` and can survive
+Choose 2, 4, 8, or 16 GiB, or 0 (single-model default) to disable this cache.
+Fleet mode defaults to 4 GiB; see [shared prefix reuse](SHARED_PREFIX_REUSE.md).
+The cache lives under `.build/qwen-agent-server/prefix-cache/<identity>` and can survive
 server restarts. Each checkpoint has a separate directory. There is no extra
 hot RAM cache, and initial cache-block allocation is limited to four blocks.
 The disk preflight includes the requested cache size plus 2 GiB for state/logs.
