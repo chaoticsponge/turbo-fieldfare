@@ -237,6 +237,11 @@ enum RepackPlanner {
                             shardHeaders: [Safetensors.Header],
                             outputDir: String) throws -> RepackPlan {
 
+        try arch.validate()
+        guard [4, 8].contains(meta.baseBits), meta.baseGroupSize == 64,
+              meta.baseMode == "affine", meta.bitsOverrides.values.allSatisfy({ [4, 8].contains($0.bits) }) else {
+            throw RepackError.configurationInvalid(detail: "expected affine 4/8-bit group-64 quantization")
+        }
         // Companion tensors may live in different shards, so resolve them
         // through one global registry.
         var registry: [String: SourceTensor] = [:]
@@ -374,7 +379,7 @@ enum RepackPlanner {
                         detail: "expected BF16 scales/biases, got \(scales.dtype)/\(biases.dtype)")
                 }
                 let spec = IndexLoader.quantSpec(forTensor: name, meta: meta)
-                let logical = logicalShape(forPackedSource: weight.shape, bits: spec.bits)
+                let logical = try logicalShape(forPackedSource: weight.shape, bits: spec.bits)
 
                 let wOff = fileCursor
                 let wSize = weight.sizeBytes
@@ -386,7 +391,7 @@ enum RepackPlanner {
 
                 entries.append(ResidentEntry(
                     name: name, dtype: GTurboFormatV1.DType.u32.rawValue,
-                    logicalShape4: padTo4(logical),
+                    logicalShape4: try padTo4(logical),
                     fileOffset: wOff, sizeBytes: wSize,
                     scaleOffset: sOff, scaleSize: sSize,
                     biasOffset: bOff, biasSize: bSize,
@@ -400,7 +405,7 @@ enum RepackPlanner {
 
                 entries.append(ResidentEntry(
                     name: name, dtype: dtype,
-                    logicalShape4: padTo4(weight.shape),
+                    logicalShape4: try padTo4(weight.shape),
                     fileOffset: off, sizeBytes: size,
                     scaleOffset: 0, scaleSize: 0,
                     biasOffset: 0, biasSize: 0,
@@ -436,7 +441,7 @@ enum RepackPlanner {
 
         for (role, name) in roles {
             guard let w = registry[name] else { throw RepackError.missingTensor(name: name) }
-            if w.dtype != .u32 || w.shape.count != 3 || Int(w.shape[0]) != expertCount {
+            if w.dtype != .u32 || w.shape.count != 3 || w.shape[0] != UInt64(expertCount) {
                 throw RepackError.shapeMismatch(name: name,
                     detail: "expected U32 rank-3 with leading \(expertCount), got \(w.dtype) \(w.shape)")
             }
@@ -460,7 +465,7 @@ enum RepackPlanner {
 
             let spec = IndexLoader.quantSpec(forTensor: name, meta: meta)
             let perExpertSourceShape = Array(w.shape.dropFirst())
-            let logicalPerExpert = logicalShape(forPackedSource: perExpertSourceShape, bits: spec.bits)
+            let logicalPerExpert = try logicalShape(forPackedSource: perExpertSourceShape, bits: spec.bits)
             let scalesLogical = Array(s.shape.dropFirst())
             let biasesLogical = Array(b.shape.dropFirst())
 
@@ -507,7 +512,10 @@ enum RepackPlanner {
         return ((v + p - 1) / p) * p
     }
 
-    private static func padTo4(_ s: [UInt64]) -> [UInt32] {
+    private static func padTo4(_ s: [UInt64]) throws -> [UInt32] {
+        guard (1...4).contains(s.count), s.allSatisfy({ $0 > 0 && $0 <= UInt64(UInt32.max) }) else {
+            throw RepackError.configurationInvalid(detail: "tensor shape exceeds the resident format")
+        }
         var out: [UInt32] = []
         out.reserveCapacity(4)
         for v in s.prefix(4) { out.append(UInt32(v)) }
@@ -516,11 +524,18 @@ enum RepackPlanner {
     }
 
     /// Logical shape of a packed quantized tensor whose source is `[D0,..,Dn-1, Dn/factor]`.
-    private static func logicalShape(forPackedSource source: [UInt64], bits: Int) -> [UInt64] {
+    private static func logicalShape(forPackedSource source: [UInt64], bits: Int) throws -> [UInt64] {
+        guard [4, 8].contains(bits) else {
+            throw RepackError.configurationInvalid(detail: "unsupported packed tensor bit width")
+        }
         let factor = UInt64(32 / bits)
         guard !source.isEmpty else { return source }
         var out = source
-        out[out.count - 1] = source[source.count - 1] * factor
+        let (extent, overflow) = source[source.count - 1].multipliedReportingOverflow(by: factor)
+        guard !overflow else {
+            throw RepackError.configurationInvalid(detail: "packed tensor dimension overflow")
+        }
+        out[out.count - 1] = extent
         return out
     }
 

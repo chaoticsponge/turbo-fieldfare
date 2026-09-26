@@ -20,7 +20,7 @@ require "uri"
 
 ROOT = File.expand_path("..", __dir__)
 SOURCE = File.join(ROOT, "Sources/TurboFieldfareApp/MacPresentation/AboutPanelPresentation.swift")
-RELEASES_URL = "https://api.github.com/repos/drumih/turbo-fieldfare/releases?per_page=100"
+RELEASES_URL = "https://api.github.com/repos/chaoticsponge/turbo-fieldfare/releases?per_page=100"
 
 def compiled_version
   source = File.read(SOURCE)

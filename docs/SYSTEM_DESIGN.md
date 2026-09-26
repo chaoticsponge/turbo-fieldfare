@@ -79,7 +79,7 @@ downloads only missing or damaged ranges. An advisory lock serializes
 inspection, install, resume, discard, and promotion for the target path.
 Discard is explicit.
 
-See the [command-line instructions](../README.md#command-line-interface) for
+See the [command-line instructions](GEMMA_RUNTIME.md#command-line-interface) for
 installation. The [optimization journey](OPTIMIZATION_JOURNEY.md#explicit-reads-made-expert-streaming-work)
 records the current instruction-checkpoint validation.
 

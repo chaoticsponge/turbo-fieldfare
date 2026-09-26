@@ -163,7 +163,23 @@ def configure_fleet(state, roles, model_root, configured, launch, concurrency, c
             routes[role]['expert_streaming']['adaptive'] = adaptive_cache
             # Reserve the maximum up front: growth cannot consume session headroom.
             routes[role]['resident_weight_bytes'] += adaptive_cache['max_bytes'] - profile['cache_bytes']
+    return configure_runtime(state, configured, launch, routes, concurrency, adaptive_cache, read_ahead_pool_bytes)
+
+
+def configure_single(state, model, catalog, configured, launch, concurrency, context):
+    model_config = json.loads((model / 'config.json').read_text())
+    routes = {'worker': {
+        'model': model.name, 'kind': 'vlm' if model_config.get('vision_config') else 'llm',
+        'weight_bytes': sum(f['bytes'] for f in catalog['files'] if f['name'].endswith('.safetensors')),
+        'max_context_window': context, 'cache_profile': cache_profile(model_config),
+        'temperature': 1.0, 'top_p': 0.95, 'top_k': 20}}
+    return configure_runtime(state, configured, launch, routes, concurrency, default_role='worker')
+
+
+def configure_runtime(state, configured, launch, routes, concurrency, adaptive_cache=None,
+                      read_ahead_pool_bytes=0, default_role=None):
     (state / 'routes.json').write_text(json.dumps({'routes': routes, 'concurrency': concurrency,
+        'default_role': default_role,
         'budget_bytes': configured['memory']['memory_guard_custom_ceiling_gb'] * 1024**3 * 0.85,
         'expert_read_ahead': {'pool_bytes': read_ahead_pool_bytes},
         'prefix_cache': {'enabled': configured['cache']['enabled'], 'storage': 'ssd',
@@ -178,7 +194,7 @@ def configure_fleet(state, roles, model_root, configured, launch, concurrency, c
         preferences[entry['model']] = {
             'model_type_override': entry['kind'], 'is_pinned': False,
             'ttl_seconds': idle_seconds[role],
-            'max_context_window': budgets[role],
+            'max_context_window': entry['max_context_window'],
             **{key: entry[key] for key in ('temperature', 'top_p', 'top_k') if key in entry}}
         if 'expert_streaming' in entry:
             preferences[entry['model']]['moe_gate_up_fusion_enabled'] = False
@@ -340,7 +356,7 @@ def main():
             # tool integrations, or experimental controls from another install.
             state = Path(tempfile.mkdtemp(prefix="run-", dir=state_root))
             cache_key = prefix_namespace(packages,
-                runtime_identity(ENGINE.parent.parent, ROOT / 'Scripts/qwen-agent-requirements.txt'),
+                runtime_identity(ENGINE.parent.parent, ROOT / 'Scripts/pylock.qwen-agents.toml'),
                 streamed_models=[model_path(role, model_root, args.worker_precision).name for role in stream_profiles]
                     if args.fleet else ())
             cache_directory = state_root / "prefix-cache" / cache_key
@@ -352,6 +368,8 @@ def main():
                 launch = configure_fleet(state, roles, model_root, configured, launch,
                                          args.concurrency, args.context, args.worker_precision,
                                          stream_profiles, args.expert_chunk_rows, role_contexts, adaptive_cache, read_ahead_pool_bytes)
+            else:
+                launch = configure_single(state, model, catalog, configured, launch, args.concurrency, args.context)
             (state / "settings.json").write_text(json.dumps(configured, indent=2) + "\n")
             environment = {k: v for k, v in os.environ.items() if not k.startswith("OMLX_")}
             environment["HF_HUB_OFFLINE"] = "1"

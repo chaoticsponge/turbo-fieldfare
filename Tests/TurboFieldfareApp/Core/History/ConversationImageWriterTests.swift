@@ -54,6 +54,8 @@ import TurboFieldfareRepackCore
             try completed.write(to: temporary)
         }
         #expect(try Data(contentsOf: destination) == completed)
+        let permissions = try FileManager.default.attributesOfItem(atPath: destination.path)[.posixPermissions] as? NSNumber
+        #expect(permissions?.intValue == 0o600)
         #expect(try FileManager.default.contentsOfDirectory(atPath: root.path)
             == ["image.thumb.jpg"])
     }

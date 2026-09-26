@@ -303,3 +303,10 @@ so they cannot bypass admission. The single-model server mode is unchanged.
 See [the validation record](LOCAL_AGENT_FLEET_VALIDATION.md). Real multi-model
 inference, Hermes tool loops, throughput, and peak RAM still require validation
 on the target 64 GB Mac. No weights were downloaded just to run tests.
+
+## Shared request defenses
+
+Fleet and single-model modes use the same [request boundaries](QWEN_AGENT_SERVER.md#request-boundaries),
+including bounded image preprocessing and HTTP transport limits. Setup uses the
+complete runtime dependency lock. Updating that lock changes the prompt-cache
+identity, so old state is not reused across dependency changes.

@@ -56,7 +56,7 @@ def choose_role(body):
     return 'worker'
 
 
-def resolve(path, body, routes):
+def resolve(path, body, routes, default_role=None):
     if not isinstance(body, dict):
         raise RouteError('Expected a JSON object')
     model = body.get('model', 'auto')
@@ -64,7 +64,7 @@ def resolve(path, body, routes):
         raise RouteError('model must be a string')
     expected = PATH_ROLES.get(path)
     if model == 'auto':
-        role = expected or choose_role(body)
+        role = expected or default_role or choose_role(body)
     elif model in routes:
         role = model
     else:
@@ -195,8 +195,9 @@ async def reply(send, status, body, headers=()):
 
 
 class AgentRouter:
-    def __init__(self, app, routes, switch, concurrency=2, budget_bytes=40.8 * 1024**3, cache_status=None, prefix_status=None, read_ahead_status=None):
+    def __init__(self, app, routes, switch, concurrency=2, budget_bytes=40.8 * 1024**3, cache_status=None, prefix_status=None, read_ahead_status=None, default_role=None):
         self.app, self.routes = app, routes
+        self.default_role = default_role
         self.cache_status = cache_status
         self.prefix_status = prefix_status
         self.read_ahead_status = read_ahead_status
@@ -231,7 +232,7 @@ class AgentRouter:
             return await send({'type': 'websocket.close', 'code': 1008})
         path, method = scope['path'], scope['method']
         if method == 'GET' and path == '/health':
-            return await reply(send, 200, {'status': 'ok', 'routing': 'prompt-rules', 'roles': list(self.routes),
+            return await reply(send, 200, {'status': 'ok', 'routing': 'single-model' if self.default_role else 'prompt-rules', 'roles': list(self.routes),
                 'expert_read_ahead': self.read_ahead_status() if self.read_ahead_status else None,
                 'prefix_cache': self.prefix_status() if self.prefix_status else {'enabled': False},
                 'adaptive_expert_cache': self.cache_status() if self.cache_status else None,
@@ -259,7 +260,10 @@ class AgentRouter:
                 return
             body = decode_json(raw)
             del raw
-            role, body = resolve(path, body, self.routes)
+            role, body = resolve(path, body, self.routes, self.default_role)
+            if path == '/v1/chat/completions':
+                from agent_images import validate_images
+                validate_images(body['messages'])
             estimate = estimate_session(path, body, self.routes[role])
             encoded = json.dumps(body, ensure_ascii=False, separators=(',', ':')).encode()
             if len(encoded) > MAX_BODY:

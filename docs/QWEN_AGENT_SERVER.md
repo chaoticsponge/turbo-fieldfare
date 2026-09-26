@@ -29,8 +29,11 @@ python3 Scripts/serve-qwen-agents.py --check
 python3 Scripts/serve-qwen-agents.py
 ```
 
-Setup needs `uv` and installs pinned oMLX in `.build/qwen-agent-venv`, using
-Python 3.13. It does not download weights or start inference. The launcher
+Setup needs `uv` (validated with 0.12.6) and synchronizes the complete
+`Scripts/pylock.qwen-agents.toml` dependency lock into `.build/qwen-agent-venv`.
+New environments use Python 3.13.15. Registry artifacts have SHA-256 hashes;
+Git dependencies use fixed commits. Isolated build dependencies are not covered
+by this runtime lock. It does not download weights or start inference. The launcher
 requires Apple Silicon, macOS 26+, Swift 6.2+, at least 2 GiB of free disk,
 at least 15% free in `memory_pressure -Q`, no existing model process, enough
 RAM, and the completed checksum-verified Qwen installation.
@@ -210,3 +213,25 @@ memory, and throughput remain unverified on the 64 GB target Mac. The existing
 Gemma-pack model-run preflight was not exercised because this validation never
 started a model. Package installation required network/compiler-cache access;
 it stayed in an isolated environment and did not alter the Swift dependencies.
+
+## Request boundaries
+
+Single-model and fleet launches share the same restricted API router and
+admission policy. Single-model `auto` always selects the installed model.
+Health, model listing, chat completions, embeddings and reranking are the only
+exposed routes; retrieval requires the corresponding fleet role. Upstream
+administration, MCP and legacy completions routes are unavailable.
+
+Both modes reject foreign Host/Origin headers, limit JSON bodies to 16 MiB,
+and bound body reading and concurrent admission. The HTTP transport caps
+connections at 128, incomplete headers at 16 KiB and header waiting at 10 seconds.
+These limits do not impose a 10-second generation timeout. WebSockets are disabled.
+
+Images require a vision-capable model and user messages. Requests accept at most
+8 static PNG/JPEG/WebP images, 8 MiB of aggregate decoded base64 bytes,
+16,777,216 aggregate pixels and 8192 pixels per dimension. Image headers are
+checked before pixel decoding. Remote URLs, file paths, animation, unsupported
+bit depths, audio and video are rejected. An accepted image is never silently
+removed to make a request text-only.
+
+See [defensive validation](DEFENSIVE_VALIDATION.md) for coverage and limitations.

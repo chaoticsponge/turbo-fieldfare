@@ -17,17 +17,17 @@ This is the documentation before the Qwen Mac-app conversion. The Gemma library,
   <img alt="Swift 6.2" src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white">
   <img alt="Metal 4" src="https://img.shields.io/badge/Metal-4-5E5CE6">
   <img alt="macOS 26 or later" src="https://img.shields.io/badge/macOS-26%2B-000000?logo=apple&logoColor=white">
-  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/License-Apache%202.0-2ea44f"></a>
+  <a href="../LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/License-Apache%202.0-2ea44f"></a>
 </p>
 
 <p align="center">
   <a href="#try-it">Quick start</a> ·
-  <a href="docs/OPENAI_SERVER.md">Local server</a> ·
-  <a href="docs/BENCHMARKS.md">Benchmarks</a> ·
-  <a href="docs/COMMUNITY_BENCHMARKS.md">Contribute results</a> ·
-  <a href="docs/SYSTEM_DESIGN.md">How it works</a> ·
-  <a href="docs/OPTIMIZATION_JOURNEY.md">Experiments</a> ·
-  <a href="docs/IMPLEMENTATION_REFERENCES.md">References</a>
+  <a href="OPENAI_SERVER.md">Local server</a> ·
+  <a href="BENCHMARKS.md">Benchmarks</a> ·
+  <a href="COMMUNITY_BENCHMARKS.md">Contribute results</a> ·
+  <a href="SYSTEM_DESIGN.md">How it works</a> ·
+  <a href="OPTIMIZATION_JOURNEY.md">Experiments</a> ·
+  <a href="IMPLEMENTATION_REFERENCES.md">References</a>
 </p>
 
 ![TurboFieldfare Mac app generating text with Gemma 4 26B-A4B](assets/turbofieldfare-app.webp)
@@ -412,7 +412,7 @@ TurboFieldfare's source and documentation are licensed under the
 
 Model weights are not included. The installer downloads them separately from
 the pinned Hugging Face checkpoint, and the weights remain governed by their
-source terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the model
+source terms. See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) for the model
 and Swift package license review.
 
 TurboFieldfare is an independent research project. It is not affiliated with,

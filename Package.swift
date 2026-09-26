@@ -16,6 +16,7 @@ let package = Package(
         .executable(name: "TurboFieldfareServer", targets: ["TurboFieldfareServer"]),
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "4.5.1"),
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", exact: "3.31.3"),
         .package(url: "https://github.com/ml-explore/mlx-swift", exact: "0.31.3"),
         .package(url: "https://github.com/huggingface/swift-transformers", from: "1.3.0"),

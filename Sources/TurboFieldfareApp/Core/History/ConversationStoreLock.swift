@@ -34,8 +34,7 @@ public final class ConversationStoreLock: @unchecked Sendable {
     /// file still throws, because a store that cannot be locked for an unknown
     /// reason must not be written to.
     public static func acquire(storeRoot: URL) throws -> ConversationStoreLock? {
-        try FileManager.default.createDirectory(
-            at: storeRoot, withIntermediateDirectories: true)
+        try Posix.makePrivateDirectory(storeRoot.path)
         let path = storeRoot.appendingPathComponent(fileName, isDirectory: false).path
         let descriptor = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else {

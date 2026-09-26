@@ -2,9 +2,9 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest version of the `main` branch. Older
-commits, forks, experimental branches, and modified model packages are not
-supported.
+Security fixes in this fork are applied to its latest `main` branch. Older
+commits, other forks, experimental branches, and modified model packages are
+not supported.
 
 TurboFieldfare is a research project. It is not intended for production,
 multi-user, or security-critical deployments.
@@ -12,7 +12,7 @@ multi-user, or security-critical deployments.
 ## Reporting a vulnerability
 
 Do not open a public issue for a suspected security vulnerability. Use
-[GitHub private vulnerability reporting](https://github.com/drumih/turbo-fieldfare/security/advisories/new)
+[GitHub private vulnerability reporting](https://github.com/chaoticsponge/turbo-fieldfare/security/advisories/new)
 instead.
 
 Include:

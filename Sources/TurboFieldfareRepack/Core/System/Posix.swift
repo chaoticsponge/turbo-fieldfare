@@ -156,6 +156,17 @@ public enum Posix {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
+    /// Protect local conversation content even when its parent is shared.
+    public static func makePrivateDirectory(_ path: String) throws {
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true,
+                                               attributes: [.posixPermissions: 0o700])
+        let fd = try openDirectory(path)
+        defer { close(fd) }
+        guard fchmod(fd, 0o700) == 0 else {
+            throw RepackError.installPathUnsafe(path: path, detail: "cannot make directory private")
+        }
+    }
+
     public static func physicalPath(_ path: String) throws -> String {
         guard let resolved = realpath(path, nil) else {
             throw RepackError.fileStatFailed(path: path, errno: errno)

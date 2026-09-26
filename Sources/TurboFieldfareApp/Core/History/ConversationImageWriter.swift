@@ -72,8 +72,7 @@ public struct ConversationImageWriter: Sendable {
                 name: attachment.displayName)
         }
 
-        try FileManager.default.createDirectory(
-            at: imagesDirectory, withIntermediateDirectories: true)
+        try Posix.makePrivateDirectory(imagesDirectory.path)
         // A later OS can preprocess the same source differently. Its new
         // pixels must not replace a previous turn's digest-bound replay input.
         let stem = String(attachment.sha256.prefix(16))
@@ -116,6 +115,9 @@ public struct ConversationImageWriter: Sendable {
         try encode(temporary)
         let descriptor = try Posix.openReadNoFollow(temporary.path)
         defer { Darwin.close(descriptor) }
+        guard Darwin.fchmod(descriptor, 0o600) == 0 else {
+            throw RepackError.installPathUnsafe(path: temporary.path, detail: "cannot make image private")
+        }
         try Posix.fsync(descriptor, path: temporary.path)
         try Posix.rename(from: temporary.path, to: url.path)
         try Posix.fsyncDirectory(directory.path)

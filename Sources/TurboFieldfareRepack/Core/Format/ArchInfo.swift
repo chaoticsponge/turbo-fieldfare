@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// Architecture facts mirrored into `manifest.json -> arch`. Cross-checked by
 /// the runtime loader at startup.
@@ -27,38 +28,41 @@ struct ArchInfo: Sendable, Equatable {
     let hiddenActivation: String
 
     static func load(configPath: String) throws -> ArchInfo {
-        let data = try Data(contentsOf: URL(fileURLWithPath: configPath))
+        let data = try Posix.readBoundedData(configPath, maximumBytes: 1024 * 1024)
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tc = root["text_config"] as? [String: Any] else {
             throw RepackError.configJsonInvalid(path: configPath, detail: "no text_config")
         }
-        func i(_ k: String) throws -> Int {
-            guard let n = (tc[k] as? Int) ?? (tc[k] as? NSNumber)?.intValue else {
-                throw RepackError.configJsonInvalid(path: configPath, detail: "missing \(k)")
+        func number(_ value: Any?, _ key: String) throws -> Double {
+            guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+                  n.doubleValue.isFinite else {
+                throw RepackError.configJsonInvalid(path: configPath, detail: "invalid number \(key)")
             }
-            return n
+            return n.doubleValue
         }
-        func d(_ k: String) throws -> Double {
-            guard let n = (tc[k] as? Double) ?? (tc[k] as? NSNumber)?.doubleValue else {
-                throw RepackError.configJsonInvalid(path: configPath, detail: "missing \(k)")
+        func i(_ key: String) throws -> Int {
+            let value = try number(tc[key], key)
+            guard value.rounded() == value, value > 0, value <= 1_048_576 else {
+                throw RepackError.configJsonInvalid(path: configPath, detail: "invalid dimension \(key)")
             }
-            return n
+            return Int(value)
         }
+        func d(_ key: String) throws -> Double { try number(tc[key], key) }
         let layerTypes = (tc["layer_types"] as? [String]) ?? []
         let mask = layerTypes.map { UInt8($0 == "full_attention" ? 1 : 0) }
         let rope = (tc["rope_parameters"] as? [String: Any]) ?? [:]
         let ropeFull = (rope["full_attention"] as? [String: Any]) ?? [:]
         let ropeSWA  = (rope["sliding_attention"] as? [String: Any]) ?? [:]
-        let prf = (ropeFull["partial_rotary_factor"] as? Double)
-            ?? (ropeFull["partial_rotary_factor"] as? NSNumber)?.doubleValue ?? 0.25
-        let fullTheta = (ropeFull["rope_theta"] as? Double)
-            ?? (ropeFull["rope_theta"] as? NSNumber)?.doubleValue ?? 1_000_000.0
-        let swaTheta = (ropeSWA["rope_theta"] as? Double)
-            ?? (ropeSWA["rope_theta"] as? NSNumber)?.doubleValue ?? 10_000.0
+        let prf = try number(ropeFull["partial_rotary_factor"] ?? 0.25, "partial_rotary_factor")
+        let fullTheta = try number(ropeFull["rope_theta"] ?? 1_000_000.0, "full rope_theta")
+        let swaTheta = try number(ropeSWA["rope_theta"] ?? 10_000.0, "sliding rope_theta")
+        guard layerTypes.allSatisfy({ ["full_attention", "sliding_attention"].contains($0) }) else {
+            throw RepackError.configJsonInvalid(path: configPath, detail: "unsupported layer type")
+        }
         let kEqV = (tc["attention_k_eq_v"] as? Bool) ?? false
         let tie = (tc["tie_word_embeddings"] as? Bool) ?? false
         let act = (tc["hidden_activation"] as? String) ?? "gelu_pytorch_tanh"
-        return ArchInfo(
+        let arch = ArchInfo(
             hiddenSize: try i("hidden_size"),
             intermediateSize: try i("intermediate_size"),
             moeIntermediateSize: try i("moe_intermediate_size"),
@@ -80,5 +84,27 @@ struct ArchInfo: Sendable, Equatable {
             attentionKEqV: kEqV,
             fullAttentionLayerMask: mask,
             hiddenActivation: act)
+        try arch.validate()
+        return arch
+    }
+
+    /// Also called by the planner: programmatic inputs must obey the same bounds.
+    func validate() throws {
+        let dimensions = [hiddenSize, intermediateSize, moeIntermediateSize]
+        guard dimensions.allSatisfy({ (1...65_536).contains($0) }),
+              (1...256).contains(numLayers), (1...1024).contains(numExperts),
+              (1...numExperts).contains(topKExperts),
+              (1...512).contains(numHeads), (1...numHeads).contains(numKVHeads),
+              (1...numHeads).contains(numFullKVHeads),
+              numHeads % numKVHeads == 0, numHeads % numFullKVHeads == 0,
+              (1...4096).contains(headDim), (1...4096).contains(fullHeadDim),
+              (1...1_048_576).contains(vocabSize), (1...1_048_576).contains(slidingWindow),
+              fullAttentionLayerMask.count == numLayers,
+              fullAttentionLayerMask.allSatisfy({ $0 <= 1 }),
+              finalLogitSoftcap.isFinite, finalLogitSoftcap > 0,
+              ropeTheta.isFinite, ropeTheta > 0, fullRopeTheta.isFinite, fullRopeTheta > 0,
+              partialRotaryFactor.isFinite, partialRotaryFactor > 0, partialRotaryFactor <= 1 else {
+            throw RepackError.configurationInvalid(detail: "invalid or unsupported architecture bounds")
+        }
     }
 }

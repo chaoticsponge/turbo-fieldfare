@@ -52,6 +52,8 @@ def main():
     from omlx import server
     from omlx.cli import main as omlx_main
 
+    from agent_transport import install_transport_limits
+    install_transport_limits()
     install_context_validation(server)
 
     streaming = {entry['expert_streaming']['directory']: entry['expert_streaming']
@@ -98,6 +100,7 @@ def main():
 
     server.app.add_middleware(AgentRouter, routes=config['routes'],
                               switch=switch, concurrency=config['concurrency'], budget_bytes=budget,
+                              default_role=config.get('default_role'),
                               cache_status=adaptive.snapshot if adaptive else None, prefix_status=prefix_status,
                               read_ahead_status=read_ahead.snapshot if read_ahead else None)
     omlx_main()
